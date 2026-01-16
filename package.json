@@ -1,0 +1,47 @@
+{
+  "name": "opencode-chat-bridge",
+  "version": "0.1.0",
+  "description": "OpenCode plugin to bridge AI coding sessions to chat protocols (Matrix, Discord, IRC, etc.)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "matrix",
+    "chat",
+    "bridge",
+    "ai",
+    "coding-agent",
+    "discord",
+    "irc"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ominiverdi/opencode-chat-bridge"
+  },
+  "dependencies": {
+    "matrix-js-sdk": "^34.0.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.0.0",
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "^1.0.0"
+  }
+}

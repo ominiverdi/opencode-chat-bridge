@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+config.json
+!config.example.json
+
+# OpenCode local data
+.opencode/
+
+# Bun
+bun.lockb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+debug.log
+
+# Matrix crypto store (contains sensitive keys)
+matrix-store/
+nio_store/

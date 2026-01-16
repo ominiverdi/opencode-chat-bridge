@@ -1,0 +1,54 @@
+{
+  "$schema": "./config.schema.json",
+  
+  "matrix": {
+    "enabled": true,
+    "homeserver": "https://matrix.org",
+    "userId": "@your-bot:matrix.org",
+    "accessToken": "{env:MATRIX_ACCESS_TOKEN}",
+    "deviceId": "OPENCODE_BRIDGE",
+    
+    "encryption": {
+      "enabled": false,
+      "storePath": "./matrix-store/"
+    },
+    
+    "autoJoin": true,
+    
+    "triggerPatterns": [
+      "@your-bot:",
+      "!oc "
+    ],
+    
+    "modes": {
+      "!s": "serious",
+      "!d": "sarcastic",
+      "!a": "agent"
+    },
+    
+    "ignoreRooms": [],
+    "ignoreUsers": []
+  },
+  
+  "discord": {
+    "enabled": false,
+    "token": "{env:DISCORD_TOKEN}"
+  },
+  
+  "irc": {
+    "enabled": false,
+    "server": "irc.libera.chat",
+    "nick": "opencode-bot",
+    "channels": ["#your-channel"]
+  },
+  
+  "sessionStorePath": "./.opencode/chat-sessions.json",
+  "defaultAgent": null,
+  
+  "modes": {
+    "!s": "serious",
+    "!d": "sarcastic",
+    "!a": "agent",
+    "!p": "plan"
+  }
+}
