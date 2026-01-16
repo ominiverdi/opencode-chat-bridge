@@ -23,8 +23,8 @@
  * }
  */
 
-import type { Plugin } from '@opencode-ai/plugin'
-import { Bridge } from './bridge'
+import type { Plugin, Hooks, PluginInput } from '@opencode-ai/plugin'
+import { Bridge, type BridgeOpenCodeClient } from './bridge'
 import { SessionManager } from './session-manager'
 import { MatrixProtocol } from './protocols/matrix/client'
 import type { MatrixConfig } from './protocols/matrix/types'
@@ -93,10 +93,13 @@ function resolveEnvVars(value: unknown): unknown {
   return value
 }
 
+// Store bridge reference for cleanup
+let activeBridge: Bridge | null = null
+
 /**
  * Main plugin export
  */
-export const ChatBridgePlugin: Plugin = async (ctx) => {
+export const ChatBridgePlugin: Plugin = async (ctx: PluginInput): Promise<Hooks> => {
   // Get config from opencode.json chatBridge section
   // Note: ctx.config would contain the full config, we need to extract chatBridge
   // For now, we'll read from a separate config or environment
@@ -104,6 +107,7 @@ export const ChatBridgePlugin: Plugin = async (ctx) => {
   const configRaw = await loadConfig(ctx.directory)
   if (!configRaw) {
     console.log('[chat-bridge] No chatBridge configuration found, plugin disabled')
+    // Return empty hooks object - all properties are optional
     return {}
   }
 
@@ -115,7 +119,8 @@ export const ChatBridgePlugin: Plugin = async (ctx) => {
   })
 
   // Initialize bridge with OpenCode client
-  const bridge = new Bridge(ctx.client as Parameters<typeof Bridge>[0], {
+  // Cast to our simplified client interface
+  const bridge = new Bridge(ctx.client as unknown as BridgeOpenCodeClient, {
     sessionManager,
     defaultAgent: config.defaultAgent,
     modes: config.modes ?? {
@@ -125,6 +130,7 @@ export const ChatBridgePlugin: Plugin = async (ctx) => {
       '!p': 'plan',
     },
   })
+  activeBridge = bridge
 
   // Add enabled protocols
   if (config.matrix?.enabled) {
@@ -141,24 +147,18 @@ export const ChatBridgePlugin: Plugin = async (ctx) => {
   await bridge.start()
   console.log('[chat-bridge] Plugin initialized')
 
-  return {
-    // React to OpenCode events
-    'session.idle': async (input) => {
-      // Session completed - could send notification
-      console.log('[chat-bridge] Session idle:', input)
-    },
-
-    'session.error': async (input) => {
-      // Session error - notify chat
-      console.log('[chat-bridge] Session error:', input)
-    },
-
-    // Cleanup on shutdown
-    dispose: async () => {
-      await bridge.stop()
-      console.log('[chat-bridge] Plugin disposed')
+  // Return hooks for OpenCode events
+  const hooks: Hooks = {
+    // Listen to all events and filter for ones we care about
+    event: async ({ event }) => {
+      // Handle session-related events
+      if (event.type === 'session.error') {
+        console.log('[chat-bridge] Session error event:', event)
+      }
     },
   }
+
+  return hooks
 }
 
 /**

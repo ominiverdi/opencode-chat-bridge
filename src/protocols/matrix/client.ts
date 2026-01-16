@@ -204,7 +204,8 @@ export class MatrixProtocol implements ChatProtocol {
     this.messageHandler?.(message)
   }
 
-  private handleSyncState(state: string): void {
+  private handleSyncState(...args: unknown[]): void {
+    const state = args[0] as string
     const wasConnected = this._connected
     this._connected = state === 'PREPARED' || state === 'SYNCING'
     

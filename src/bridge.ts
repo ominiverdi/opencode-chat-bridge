@@ -11,8 +11,8 @@
 import type { ChatProtocol, ChatMessage } from './protocols/base'
 import { SessionManager } from './session-manager'
 
-// OpenCode SDK client type (simplified)
-interface OpenCodeClient {
+// OpenCode SDK client type (simplified for our needs)
+export interface BridgeOpenCodeClient {
   session: {
     create(opts: { body: { title?: string; parentID?: string } }): Promise<{ data: { id: string } }>
     get(opts: { path: { id: string } }): Promise<{ data: { id: string; title?: string } }>
@@ -55,7 +55,7 @@ export class Bridge {
   private eventSubscription?: AsyncIterable<BridgeEvent>
 
   constructor(
-    private client: OpenCodeClient,
+    private client: BridgeOpenCodeClient,
     config: Partial<BridgeConfig> = {}
   ) {
     this.config = {
