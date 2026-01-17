@@ -37,7 +37,7 @@
     "matrix-js-sdk": "^34.0.0"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.0.0",
+    "@opencode-ai/plugin": "1.1.25",
     "@types/bun": "latest",
     "typescript": "^5.0.0"
   },

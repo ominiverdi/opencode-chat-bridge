@@ -8,7 +8,7 @@
         "matrix-js-sdk": "^34.0.0",
       },
       "devDependencies": {
-        "@opencode-ai/plugin": "^1.0.0",
+        "@opencode-ai/plugin": "1.1.25",
         "@types/bun": "latest",
         "typescript": "^5.0.0",
       },
@@ -24,9 +24,9 @@
 
     "@matrix-org/olm": ["@matrix-org/olm@3.2.15", "", {}, "sha512-S7lOrndAK9/8qOtaTq/WhttJC/o4GAzdfK0MUPpo8ApzsJEC0QjtwrkC3KBXdFP1cD1MXi/mlKR7aaoVMKgs6Q=="],
 
-    "@opencode-ai/plugin": ["@opencode-ai/plugin@1.1.24", "", { "dependencies": { "@opencode-ai/sdk": "1.1.24", "zod": "4.1.8" } }, "sha512-F/bYBpxqxyxfe8UPrqOp0EtQE+IOqsCDHfQ/MF6nTMjBfUaV5P6l8Z2Xn/J21qQkLXe3jCkJhMRiU/Ang4SYIQ=="],
+    "@opencode-ai/plugin": ["@opencode-ai/plugin@1.1.25", "", { "dependencies": { "@opencode-ai/sdk": "1.1.25", "zod": "4.1.8" } }, "sha512-oTUWS446H/j7z3pdzo3cOrB5N87XZ/RKdgPD8yHv/rLX92B4YQHjOqggVQ56Q+1VEnN0jxzhoqRylv/0ZEts/Q=="],
 
-    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.1.24", "", {}, "sha512-veDD9JTgduRhNlwY2J2LiaE64JoPs+oRFD6P977neXcEznNnOye8CtBvXxgPhLLZOYqjjBPYlAASaPoICfNGWQ=="],
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.1.25", "", {}, "sha512-mWUX489ArEF2ICg3iZsx2VQaGS3Z2j/dwAJDacao9t7dGDzjOIaacPw2weZ10zld7XmT9V9C0PM/A5lDZ52J+w=="],
 
     "@types/bun": ["@types/bun@1.3.6", "", { "dependencies": { "bun-types": "1.3.6" } }, "sha512-uWCv6FO/8LcpREhenN1d1b6fcspAB+cefwD7uti8C8VffIv0Um08TKMn98FynpTiU38+y2dUO55T11NgDt8VAA=="],
 

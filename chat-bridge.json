@@ -1,0 +1,41 @@
+{
+  "matrix": {
+    "enabled": true,
+    "homeserver": "https://matrix.org",
+    "userId": "@llm-assitant:matrix.org",
+    "accessToken": "{env:MATRIX_ACCESS_TOKEN}",
+    "deviceId": "OPENCODE_BRIDGE_001",
+    
+    "encryption": {
+      "enabled": false,
+      "storePath": "./matrix-store/"
+    },
+    
+    "autoJoin": true,
+    
+    "triggerPatterns": [
+      "@llm-assitant:",
+      "!oc "
+    ],
+    
+    "modes": {
+      "!s": "serious",
+      "!d": "sarcastic",
+      "!a": "agent",
+      "!p": "plan"
+    },
+    
+    "ignoreRooms": [],
+    "ignoreUsers": []
+  },
+  
+  "sessionStorePath": "./.opencode/chat-sessions.json",
+  "defaultAgent": null,
+  
+  "modes": {
+    "!s": "serious",
+    "!d": "sarcastic",
+    "!a": "agent",
+    "!p": "plan"
+  }
+}

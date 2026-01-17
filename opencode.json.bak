@@ -3,24 +3,27 @@
   
   "model": "anthropic/claude-sonnet-4-20250514",
   
-  "default_agent": "serious" ,
+  "plugin": ["./src/index.ts"],
+  
+  "permission": {
+    "*": "deny",
+    "webfetch": "allow",
+    "read": "allow",
+    "edit": "allow",
+    "bash": "ask",
+    "glob": "allow",
+    "grep": "allow",
+    "external_directory": "deny"
+  },
+  
   "agent": {
     "serious": {
       "mode": "primary",
-      "description": "Document library assistant for geospatial and surveying materials",
+      "description": "Helpful assistant for general questions",
       "model": "anthropic/claude-sonnet-4-20250514",
-      "prompt": "I am a librarian",
-      "tools": {
-        "doclibrary*": true,
-        "time*": true,
-        "web-search*": true,
-        "chrome-devtools*": true
-      },
       "permission": {
         "*": "deny",
-        "mcp*": "allow",
-	"web-search*":"allow",
-	"time*":"allow"
+        "webfetch": "allow"
       }
     },
     "sarcastic": {

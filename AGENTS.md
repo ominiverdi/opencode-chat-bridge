@@ -2,107 +2,249 @@
 
 ## Project Overview
 
-OpenCode plugin that bridges AI coding sessions to chat protocols (Matrix, Discord, IRC).
+Standalone bridge that connects Matrix chat to OpenCode AI coding sessions.
 
-**Status:** Early development - Matrix protocol is the initial focus.
+**Status:** Working! Matrix protocol is implemented and tested.
 
 **Test Room:** #osgeo-bot:matrix.org
+
+## Quick Start
+
+```bash
+# Terminal 1: Start OpenCode server
+opencode serve --port 4096
+
+# Terminal 2: Start the bridge
+source .env
+bun standalone.ts
+```
 
 ## Build/Test Commands
 
 - Install dependencies: `bun install`
-- Run in dev mode: `bun run dev`
+- Run bridge: `bun standalone.ts`
 - Type check: `bun run typecheck`
-- Build: `bun run build`
-- Run tests: `bun test`
+- Build plugin (unused): `bun run build`
 
 ## Architecture
 
+**Standalone approach (working):**
+```
+standalone.ts          # Main bridge script - USE THIS
+opencode.json          # OpenCode configuration (REQUIRED)
+.env                   # MATRIX_ACCESS_TOKEN
+start.sh               # Startup script
+```
+
+**Plugin approach (BROKEN - do not use):**
 ```
 src/
-├── index.ts              # Plugin entry point, config loading
-├── bridge.ts             # Core logic: routes messages to OpenCode
-├── session-manager.ts    # Maps chat rooms → OpenCode sessions
-├── protocols/
-│   ├── base.ts           # ChatProtocol interface (all adapters implement this)
-│   └── matrix/
-│       ├── client.ts     # Matrix protocol implementation
-│       └── types.ts      # Matrix-specific types
-└── utils/
-    ├── config.ts         # Config loading, env var resolution
-    └── logger.ts         # Logging utilities
+├── index.ts           # Plugin entry point (causes constructor error)
+├── bridge.ts          # Bridge class (cannot be instantiated)
+├── session-manager.ts # Session mapping
+└── protocols/         # Protocol adapters
 ```
 
-## Key Interfaces
+**IMPORTANT:** Do NOT add `"plugin": ["./src/index.ts"]` to opencode.json. It causes:
+```
+TypeError: Cannot call a class constructor without |new|
+```
 
-### ChatProtocol (protocols/base.ts)
-All protocol adapters must implement:
-- `connect()` / `disconnect()` - Lifecycle
-- `onMessage(handler)` - Register message handler
-- `sendMessage(roomId, content)` - Send to chat
-- `sendTyping(roomId, typing)` - Typing indicators
+The plugin approach failed due to ESM/bundling issues with OpenCode's plugin loader.
+See docs/ARCHITECTURE.md for details.
 
-### Bridge (bridge.ts)
-- Registers protocol adapters
-- Routes incoming messages to OpenCode sessions
-- Parses mode commands (!s, !d, !a, etc.)
-- Handles response formatting and splitting
+## Data Flow
 
-### SessionManager (session-manager.ts)
-- Bidirectional room↔session mapping
-- JSON persistence
-- Stale session cleanup
+```
+Matrix Message (@bot: hello)
+       │
+       ▼
+standalone.ts (bun process)
+       │
+       ├── Strip trigger pattern
+       ├── Parse mode command
+       ├── Get/create OpenCode session
+       │
+       ▼
+OpenCode Server (:4096)
+       │
+       ├── Route to LLM
+       ├── Execute tools
+       │
+       ▼
+Response to Matrix
+```
 
 ## Configuration
 
-Config is loaded from (in order):
-1. `./chat-bridge.json`
-2. `./.opencode/chat-bridge.json`
-3. `~/.config/opencode/chat-bridge.json`
-4. `opencode.json` → `chatBridge` section
+### Environment (.env)
+```bash
+MATRIX_ACCESS_TOKEN="syt_xxx..."
+OPENCODE_URL="http://127.0.0.1:4096"  # optional
+```
 
-Environment variables: `{env:VAR_NAME}` or `{env:VAR_NAME:default}`
+### Bridge Settings (standalone.ts)
+```typescript
+const MATRIX_USER_ID = '@llm-assitant:matrix.org'
+const TRIGGER_PATTERNS = ['@llm-assitant:', '!oc ']
+const MODES = { '!s': 'serious', '!d': 'sarcastic', ... }
+```
 
-## Code Style
+### OpenCode (opencode.json) - REQUIRED
 
-- **Language:** TypeScript with strict mode
-- **Runtime:** Bun
-- **Imports:** Use `type` imports for types only
-- **Naming:** camelCase functions, PascalCase classes/interfaces
-- **Errors:** Log with context, fail fast for unrecoverable
+Without this file, prompts fail with "No response generated".
+
+**Default personality** (Claude Code introduces itself and lists available tools):
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "permission": {
+    "*": "deny",
+    "webfetch": "allow",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow"
+  },
+  "agent": {
+    "serious": {
+      "mode": "primary",
+      "description": "Helpful assistant for general questions",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "permission": { "*": "deny", "webfetch": "allow" }
+    },
+    "sarcastic": {
+      "mode": "primary",
+      "description": "Witty, humorous assistant",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "permission": { "*": "deny", "webfetch": "allow" }
+    }
+  }
+}
+```
+
+**Custom personality** (add a `prompt` field to customize behavior):
+```json
+{
+  "agent": {
+    "serious": {
+      "mode": "primary",
+      "description": "Document library assistant",
+      "prompt": "You are a document library assistant. Use plain text only, no markdown.",
+      "permission": { "*": "deny", "mcp": "allow" }
+    }
+  }
+}
+```
+
+## Key APIs
+
+### OpenCode SDK
+```typescript
+const opencode = createOpencodeClient({ baseUrl: 'http://127.0.0.1:4096' })
+
+// List sessions
+await opencode.session.list()
+
+// Create session
+await opencode.session.create({ body: { title: 'Matrix: room' } })
+
+// Send prompt
+await opencode.session.prompt({
+  path: { id: sessionId },
+  body: { parts: [{ type: 'text', text: 'Hello' }], agent: 'serious' }
+})
+```
+
+### Matrix SDK
+```typescript
+const matrix = sdk.createClient({
+  baseUrl: 'https://matrix.org',
+  accessToken: MATRIX_ACCESS_TOKEN,
+  userId: MATRIX_USER_ID,
+})
+
+matrix.on('Room.timeline', async (event, room) => { ... })
+await matrix.sendMessage(roomId, { msgtype: 'm.text', body: 'Hello' })
+```
 
 ## Dependencies
 
 - `matrix-js-sdk` - Matrix protocol client
-- `@opencode-ai/plugin` - OpenCode plugin types (peer dependency)
+- `@opencode-ai/sdk` - OpenCode API client
 
-## Adding a New Protocol
+## Code Style
 
-1. Create `src/protocols/<name>/` directory
-2. Create `types.ts` with config interface extending `ProtocolConfig`
-3. Create `client.ts` implementing `ChatProtocol`
-4. Update `index.ts` to register protocol if enabled
-5. Add docs in `docs/<NAME>_SETUP.md`
-6. Update `config.example.json`
+- **Language:** TypeScript
+- **Runtime:** Bun
+- **Naming:** camelCase functions, PascalCase classes
+- **Errors:** Log with context, fail fast
 
-## Current TODOs
+## Lessons Learned
 
-- [ ] Test Matrix connection with real homeserver
-- [ ] Implement E2EE support (optional, complex)
-- [ ] Add streaming response support via OpenCode events
-- [ ] Implement rate limiting per user/room
-- [ ] Add Discord protocol adapter
-- [ ] Add IRC protocol adapter
-- [ ] Publish to npm
+### Plugin Approach Failed
+- OpenCode plugins are for tools/hooks, not background services
+- Class constructor error when loading Bridge class
+- ESM/bundling incompatibility suspected
+
+### Standalone Works Well
+- Clear separation of concerns
+- Easier debugging
+- Uses documented HTTP API
+- Simple to deploy
+
+## Current State
+
+**Working:**
+- [x] Matrix message reception
+- [x] Trigger pattern filtering
+- [x] Mode command parsing
+- [x] Session creation
+- [x] Prompt sending
+- [x] Response formatting
+- [x] Long message splitting
+- [x] MCP tools (doclibrary, time, web-search, chrome-devtools)
+- [x] Default personality (Claude Code)
+- [x] Custom personality (via prompt field)
+
+**Not Implemented:**
+- [ ] Session persistence (sessions lost on restart)
+- [ ] Streaming responses
+- [ ] E2EE support
+- [ ] Rate limiting
+- [ ] Discord/IRC protocols
+
+## Troubleshooting
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| "No response generated" | Missing opencode.json | Create opencode.json with model + agent |
+| "Cannot call class constructor" | Plugin line in config | Remove `"plugin"` from opencode.json |
+| "agent.name undefined" | No agent defined | Add agent section to opencode.json |
+| "unavailable tool" error | MCP not permitted | Add `"mcp": "allow"` to agent permissions |
+| Tool appears to work but uses workaround | Permission missing | Check actual tool calls in parts files |
+
+For detailed debugging including how to inspect tool calls and server logs, see [docs/DEBUGGING.md](docs/DEBUGGING.md).
 
 ## Related Projects
 
-- [Kimaki](https://github.com/remorses/kimaki) - Discord bot for OpenCode (reference)
-- [Portal](https://github.com/hosenur/portal) - Mobile web UI for OpenCode
-- [matrix-llmagent](https://github.com/ominiverdi/osgeo-llmagent) - Original Matrix bot (being replaced)
+- [OpenCode](https://opencode.ai) - The AI coding agent
+- [Kimaki](https://github.com/remorses/kimaki) - Discord bot (reference)
+- [matrix-llmagent](https://github.com/ominiverdi/osgeo-llmagent) - Original Matrix bot
 
-## Testing Notes
+## Testing
 
-- Use `opencode serve --port 4097` for isolated dev server
-- Test room: #osgeo-bot:matrix.org
-- For E2EE testing, use a separate device ID to avoid conflicts
+1. Send message in #osgeo-bot:matrix.org:
+   ```
+   !oc hello
+   ```
+
+2. Watch bridge logs:
+   ```bash
+   tail -f /tmp/matrix-bridge.log
+   ```
+
+3. Check OpenCode sessions:
+   ```bash
+   curl http://127.0.0.1:4096/session | jq
+   ```

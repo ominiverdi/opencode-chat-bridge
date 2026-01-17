@@ -34,3 +34,4 @@ debug.log
 # Matrix crypto store (contains sensitive keys)
 matrix-store/
 nio_store/
+*.swp
