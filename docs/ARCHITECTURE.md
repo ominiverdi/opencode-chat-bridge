@@ -243,6 +243,33 @@ client.on("tool", ({ name, status }) => {
 })
 ```
 
+### 4. Handle images from tool results
+
+**Important:** Images from MCP tools (like doclibrary) come in tool results, NOT in response text chunks. You must listen to `update` events:
+
+```typescript
+let toolResultsBuffer = ""
+
+// Capture tool results
+client.on("update", (update) => {
+  if (update.type === "tool_result" && update.toolResult) {
+    toolResultsBuffer += update.toolResult
+  }
+})
+
+// After prompt completes, check for image markers
+const imageRegex = /\[DOCLIBRARY_IMAGE\]([^\[]+)\[\/DOCLIBRARY_IMAGE\]/gi
+const matches = toolResultsBuffer.matchAll(imageRegex)
+for (const match of matches) {
+  const imagePath = match[1].trim()
+  if (fs.existsSync(imagePath)) {
+    sendImageToChat(imagePath)
+  }
+}
+```
+
+The `chunk` event only receives `agent_message_chunk` updates (the LLM's text response). Tool results with image paths are sent via `tool_call_update` events with status `completed`.
+
 ## Session Management
 
 Currently, ACPClient maintains a single session. For multi-room chat:

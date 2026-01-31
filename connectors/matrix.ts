@@ -17,15 +17,16 @@
 
 import * as sdk from "matrix-js-sdk"
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
+import { getConfig } from "../src/config"
 
-// Configuration from environment
-const HOMESERVER = process.env.MATRIX_HOMESERVER || "https://matrix.org"
-const ACCESS_TOKEN = process.env.MATRIX_ACCESS_TOKEN
-const USER_ID = process.env.MATRIX_USER_ID
-const TRIGGER = process.env.MATRIX_TRIGGER || "!oc"
-
-// Rate limiting: minimum seconds between responses per user
-const RATE_LIMIT_SECONDS = 5
+// Load configuration
+const config = getConfig()
+const HOMESERVER = config.matrix.homeserver
+const ACCESS_TOKEN = config.matrix.accessToken || process.env.MATRIX_ACCESS_TOKEN
+const USER_ID = config.matrix.userId || process.env.MATRIX_USER_ID
+const TRIGGER = config.trigger
+const BOT_NAME = config.botName
+const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const userLastMessage = new Map<string, number>()
 
 // Per-room ACP sessions with metadata
@@ -67,6 +68,13 @@ class MatrixConnector {
     // Handle room messages
     this.matrix.on(sdk.RoomEvent.Timeline, this.handleRoomEvent.bind(this))
     
+    // Debug: log sync state changes  
+    this.matrix.on(sdk.ClientEvent.Sync, (state: string, prevState: string | null) => {
+      if (state !== prevState) {
+        console.log(`[SYNC] ${prevState} -> ${state}`)
+      }
+    })
+    
     // Handle invites - auto-join
     this.matrix.on(sdk.RoomMemberEvent.Membership, async (event, member) => {
       if (member.membership === "invite" && member.userId === USER_ID) {
@@ -80,8 +88,8 @@ class MatrixConnector {
       }
     })
     
-    // Start syncing
-    await this.matrix.startClient({ initialSyncLimit: 0 })
+    // Start syncing - get last 10 messages to initialize rooms properly
+    await this.matrix.startClient({ initialSyncLimit: 10 })
     console.log("Matrix connector started! Listening for messages...")
   }
   
@@ -90,9 +98,13 @@ class MatrixConnector {
     room: sdk.Room | undefined,
     toStartOfTimeline: boolean | undefined
   ): Promise<void> {
+    // Log all timeline events for debugging
+    const eventType = event.getType()
+    console.log(`[EVENT] type=${eventType} room=${room?.name} toStart=${toStartOfTimeline}`)
+    
     // Ignore old messages and non-text messages
     if (toStartOfTimeline) return
-    if (event.getType() !== "m.room.message") return
+    if (eventType !== "m.room.message") return
     
     const content = event.getContent()
     if (content.msgtype !== "m.text") return
@@ -101,22 +113,34 @@ class MatrixConnector {
     const sender = event.getSender()
     if (sender === USER_ID) return
     
-    const body = content.body || ""
+    const body = (content.body || "").trim()  // Trim whitespace
     const roomId = event.getRoomId()
     if (!roomId) return
     
+    // Log the message
+    console.log(`[MSG] ${sender}: ${body}`)
+    
     // Check trigger
-    // Support: "!oc query" or "@botname: query" or direct mention
+    // Support: "!oc query" or "@bot: query" or full mention
     let query = ""
     if (body.startsWith(TRIGGER + " ")) {
       query = body.slice(TRIGGER.length + 1).trim()
+    } else if (body.startsWith(TRIGGER)) {
+      // Handle "!oc" without space (e.g., "!ochello")
+      query = body.slice(TRIGGER.length).trim()
     } else if (body.includes(USER_ID!)) {
-      // Mentioned by user ID
+      // Mentioned by full user ID (@bot_ominiverdi:matrix.org)
       query = body.replace(USER_ID!, "").trim()
+    } else if (body.match(/^@bot[:\s]/i)) {
+      // Mentioned by short name (@bot: or @bot )
+      query = body.replace(/^@bot[:\s]*/i, "").trim()
     } else {
       // Not triggered
       return
     }
+    
+    // Clean up any remaining colons or @ from the query
+    query = query.replace(/^[:\s]+/, "").trim()
     
     if (!query) return
     
@@ -235,6 +259,7 @@ class MatrixConnector {
     
     // Track response chunks
     let responseBuffer = ""
+    let toolResultsBuffer = ""  // Capture tool results separately for image markers
     let lastActivityMessage = ""
     
     // Activity events - show what the AI is doing
@@ -251,6 +276,13 @@ class MatrixConnector {
       responseBuffer += text
     }
     
+    // Capture tool results for image markers
+    const updateHandler = (update: any) => {
+      if (update.type === "tool_result" && update.toolResult) {
+        toolResultsBuffer += update.toolResult
+      }
+    }
+    
     // Handle images from tools (e.g., doclibrary page images)
     const imageHandler = async (image: ImageContent) => {
       console.log(`Received image: ${image.mimeType}`)
@@ -260,19 +292,36 @@ class MatrixConnector {
     // Set up listeners
     client.on("activity", activityHandler)
     client.on("chunk", chunkHandler)
+    client.on("update", updateHandler)
     client.on("image", imageHandler)
     
     try {
       // Send the prompt
       await client.prompt(query)
       
-      // Check response for image file paths (workaround for ACP not passing images)
-      const imageFileMatch = responseBuffer.match(/Image file: (.+\.png)/i)
-      if (imageFileMatch) {
-        const imagePath = imageFileMatch[1].trim()
-        await this.sendImageFromFile(roomId, imagePath)
-        // Remove the image file line from response
-        responseBuffer = responseBuffer.replace(/Image file: .+\.png\n?/gi, "").trim()
+      // Check tool results for image file paths using doclibrary marker
+      // Format: [DOCLIBRARY_IMAGE]/path/to/file.png[/DOCLIBRARY_IMAGE]
+      const fs = require("fs")
+      const imagePathRegex = /\[DOCLIBRARY_IMAGE\]([^\[]+)\[\/DOCLIBRARY_IMAGE\]/gi
+      
+      // Search in tool results (where doclibrary returns the markers)
+      const matches = toolResultsBuffer.matchAll(imagePathRegex)
+      for (const match of matches) {
+        const imagePath = match[1].trim()
+        console.log(`[IMAGE] Found doclibrary image in tool result: ${imagePath}`)
+        if (imagePath && fs.existsSync(imagePath)) {
+          await this.sendImageFromFile(roomId, imagePath)
+        }
+      }
+      
+      // Also check response buffer in case model echoes the path
+      const responseMatches = responseBuffer.matchAll(imagePathRegex)
+      for (const match of responseMatches) {
+        const imagePath = match[1].trim()
+        console.log(`[IMAGE] Found doclibrary image in response: ${imagePath}`)
+        if (imagePath && fs.existsSync(imagePath)) {
+          await this.sendImageFromFile(roomId, imagePath)
+        }
       }
       
       // Send the final response
@@ -286,6 +335,7 @@ class MatrixConnector {
       // Clean up listeners
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
+      client.off("update", updateHandler)
       client.off("image", imageHandler)
     }
   }

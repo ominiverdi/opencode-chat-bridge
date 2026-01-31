@@ -4,7 +4,30 @@
 
 ACP-based CLI and library for OpenCode with custom skills support.
 
-**Status:** Working! CLI and ACP client implemented with permission-based security.
+**Status:** Working! CLI, ACP client, and Matrix connector implemented with permission-based security.
+
+## Critical Configuration
+
+### Model Selection
+
+**MUST SET** the `model` field in `opencode.json`:
+
+```json
+{
+  "model": "anthropic/claude-sonnet-4-5"
+}
+```
+
+Without this, OpenCode defaults to `opencode/big-pickle` (free but less capable).
+
+### Image Handling in Connectors
+
+Tool results (like doclibrary images) come via `update` events, NOT `chunk` events:
+
+- `chunk` events: Only LLM response text
+- `update` events with `type: "tool_result"`: Contains tool output including `[DOCLIBRARY_IMAGE]` markers
+
+Connectors must listen to both to handle images properly.
 
 ## Security Model
 
@@ -205,7 +228,7 @@ bun tests/test-acp-tools.ts
 
 ## Future Plans
 
-- [ ] Matrix bridge using ACP client
+- [x] Matrix bridge using ACP client
 - [ ] Discord bridge
 - [ ] Session persistence
 - [ ] Streaming to chat protocols

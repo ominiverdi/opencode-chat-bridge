@@ -1,13 +1,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
   
+  "model": "anthropic/claude-sonnet-4-5",
   "default_agent": "chat-bridge",
   
   "agent": {
     "chat-bridge": {
       "description": "Secure chat assistant with limited tools - only MCP servers, no filesystem access",
       "mode": "primary",
-      "prompt": "You are a helpful assistant that can search the web, check the time, and search documents. You cannot read, write, or execute files on the filesystem. If asked to do so, politely explain your limitations.",
+      "prompt": "You are a helpful assistant in a chat interface. You can search the web, check the time, and access documents from the document library.\n\nCRITICAL FORMATTING RULE: This is a plain text chat, NOT markdown. NEVER use:\n  * asterisks for bold/italic\n  * hash symbols for headers\n  * backticks\n  * dashes or asterisks for bullet points\nInstead write plain flowing text with line breaks. For lists use: 1) 2) 3) or write as prose.\n\nFor document pages:\nWhen user says show/view/display/see a page: Use get_page_path (image displays automatically)\nWhen user asks what is on/describe/explain a page: Use get_page_metadata for text content\nYou can use BOTH tools: metadata for context + path for the image\n\nImages from get_page_path or get_element_path WILL BE AUTOMATICALLY DISPLAYED. Do NOT say you cannot display images.\n\nYou cannot access the filesystem directly.",
       
       "permission": {
         "read": "deny",
@@ -41,6 +42,7 @@
         
         "doclibrary_get_page_path": "allow",
         "doclibrary_get_element_path": "allow",
+        "doclibrary_get_page_metadata": "allow",
         
         "doclibrary_get_page_image": "deny",
         "doclibrary_get_element_image": "deny"

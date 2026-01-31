@@ -219,11 +219,13 @@ Define multiple agents for different purposes:
 
 ### Default Model
 
+**IMPORTANT:** You MUST set the `model` field in `opencode.json`. Without it, OpenCode defaults to `opencode/big-pickle` (a free but less capable model).
+
 Set in `opencode.json`:
 
 ```json
 {
-  "model": "anthropic/claude-sonnet-4-20250514"
+  "model": "anthropic/claude-sonnet-4-5"
 }
 ```
 
@@ -373,3 +375,20 @@ Check permission configuration. Tool calls are blocked if:
 1. Check skill file exists in `skills/` directory
 2. Check file extension is `.md`
 3. Check frontmatter is valid YAML
+
+### "Wrong model being used" / "Big Pickle"
+
+If the bot uses `opencode/big-pickle` instead of your intended model:
+
+1. Add `"model": "anthropic/claude-sonnet-4-5"` to `opencode.json`
+2. Without the `model` field, OpenCode defaults to free models
+3. Verify with: `opencode models` to list available models
+
+### "Images not displaying in Matrix"
+
+If doclibrary images aren't showing in Matrix chat:
+
+1. Tool results contain `[DOCLIBRARY_IMAGE]...[/DOCLIBRARY_IMAGE]` markers
+2. These come in tool_result events, not in response text chunks
+3. The Matrix connector captures tool results via `update` events
+4. Check logs for `[IMAGE] Found doclibrary image` messages

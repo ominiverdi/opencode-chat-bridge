@@ -34,4 +34,6 @@ debug.log
 # Matrix crypto store (contains sensitive keys)
 matrix-store/
 nio_store/
-*.swp
+
+# WhatsApp auth (contains sensitive credentials)
+.whatsapp-auth/
