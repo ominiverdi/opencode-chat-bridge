@@ -12,6 +12,7 @@
       
       "permission": {
         "read": "deny",
+        "write": "deny",
         "edit": "deny",
         "glob": "deny",
         "grep": "deny",
