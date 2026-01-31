@@ -1,7 +1,7 @@
 {
   "name": "opencode-chat-bridge",
-  "version": "0.1.0",
-  "description": "OpenCode plugin to bridge AI coding sessions to chat protocols (Matrix, Discord, IRC, etc.)",
+  "version": "0.2.0",
+  "description": "Bridge OpenCode AI to chat platforms (Matrix, Slack, Discord) with secure permission-based tool access",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,20 +14,21 @@
     "build": "bun build src/index.ts --outdir dist --target node --format esm",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "prepublishOnly": "bun run build"
+    "matrix": "bun connectors/matrix.ts",
+    "slack": "bun connectors/slack.ts",
+    "cli": "bun src/cli.ts"
   },
   "keywords": [
     "opencode",
-    "plugin",
     "matrix",
+    "slack",
     "chat",
     "bridge",
     "ai",
-    "coding-agent",
-    "discord",
-    "irc"
+    "bot",
+    "acp"
   ],
-  "author": "",
+  "author": "ominiverdi",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,16 +36,13 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.13.1",
+    "@slack/bolt": "^4.1.0",
     "baileys": "^7.0.0-rc.9",
     "matrix-js-sdk": "^34.0.0",
     "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "1.1.25",
     "@types/bun": "latest",
     "typescript": "^5.0.0"
-  },
-  "peerDependencies": {
-    "@opencode-ai/plugin": "^1.0.0"
   }
 }

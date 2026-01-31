@@ -28,12 +28,20 @@ Thumbs.db
 *.swo
 
 # Logs
+logs/
 *.log
-debug.log
+
+# AI assistant instructions (personal)
+AGENTS.md
 
 # Matrix crypto store (contains sensitive keys)
 matrix-store/
 nio_store/
 
-# WhatsApp auth (contains sensitive credentials)
+# Python cache
+.ruff_cache/
+__pycache__/
+*.pyc
+
+# whatsapp (contains sensitive keys)
 .whatsapp-auth/
