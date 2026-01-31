@@ -12,6 +12,7 @@ export interface MatrixConfig {
   homeserver: string
   userId: string
   accessToken: string
+  password: string  // For password-based login (auto-generates tokens)
   deviceId: string
   encryption: {
     enabled: boolean
@@ -53,6 +54,7 @@ const defaultConfig: ChatBridgeConfig = {
     homeserver: "https://matrix.org",
     userId: "",
     accessToken: "",
+    password: "",  // For password-based login
     deviceId: "OPENCODE_BRIDGE",
     encryption: {
       enabled: false,

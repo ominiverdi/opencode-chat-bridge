@@ -15,11 +15,13 @@
 
 import { App } from "@slack/bolt"
 import { ACPClient, type ActivityEvent } from "../src"
+import { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo } from "../src/session-utils"
 
 // Configuration from environment
 const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
 const APP_TOKEN = process.env.SLACK_APP_TOKEN
 const TRIGGER = process.env.SLACK_TRIGGER || "!oc"
+const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 
 // Rate limiting
 const RATE_LIMIT_SECONDS = 5
@@ -52,6 +54,20 @@ class SlackConnector {
 
     console.log("Starting Slack connector...")
     console.log(`  Trigger: ${TRIGGER}`)
+    
+    // Log session storage location
+    const storageInfo = getSessionStorageInfo()
+    console.log(`  Session storage: ${storageInfo.baseDir}`)
+    console.log(`    (${storageInfo.source})`)
+
+    // Cleanup old sessions
+    console.log("Cleaning up old sessions...")
+    const cleaned = cleanupOldSessions("slack", SESSION_RETENTION_DAYS)
+    if (cleaned > 0) {
+      console.log(`  Cleaned up ${cleaned} session(s) older than ${SESSION_RETENTION_DAYS} days`)
+    } else {
+      console.log(`  No old sessions to clean`)
+    }
 
     // Create Slack app with Socket Mode
     this.app = new App({
@@ -144,11 +160,13 @@ class SlackConnector {
       if (session) {
         const age = Math.round((Date.now() - session.createdAt.getTime()) / 1000 / 60)
         const lastAct = Math.round((Date.now() - session.lastActivity.getTime()) / 1000 / 60)
+        const sessionDir = getSessionDir("slack", channel)
         await say(
           `Session status:\n` +
           `- Messages: ${session.messageCount}\n` +
           `- Age: ${age} minutes\n` +
-          `- Last activity: ${lastAct} minutes ago`
+          `- Last activity: ${lastAct} minutes ago\n` +
+          `- Directory: ${sessionDir}`
         )
       } else {
         await say("No active session for this channel.")
@@ -187,7 +205,11 @@ class SlackConnector {
   private async getOrCreateSession(channel: string): Promise<ChannelSession | null> {
     let session = channelSessions.get(channel)
     if (!session) {
-      const client = new ACPClient({ cwd: process.cwd() })
+      // Get dedicated session directory for this channel
+      const sessionDir = getSessionDir("slack", channel)
+      ensureSessionDir(sessionDir)
+      
+      const client = new ACPClient({ cwd: sessionDir })
 
       try {
         await client.connect()
@@ -200,6 +222,7 @@ class SlackConnector {
         }
         channelSessions.set(channel, session)
         console.log(`Created new ACP session for channel: ${channel}`)
+        console.log(`  Session directory: ${sessionDir}`)
       } catch (err) {
         console.error(`Failed to create ACP session:`, err)
         return null

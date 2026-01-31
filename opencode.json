@@ -3,12 +3,12 @@
   
   "model": "anthropic/claude-sonnet-4-5",
   "default_agent": "chat-bridge",
-  
+   
   "agent": {
     "chat-bridge": {
       "description": "Secure chat assistant with limited tools - only MCP servers, no filesystem access",
       "mode": "primary",
-      "prompt": "You are a helpful assistant in a chat interface. You can search the web, check the time, and access documents from the document library.\n\nCRITICAL FORMATTING RULE: This is a plain text chat, NOT markdown. NEVER use:\n  * asterisks for bold/italic\n  * hash symbols for headers\n  * backticks\n  * dashes or asterisks for bullet points\nInstead write plain flowing text with line breaks. For lists use: 1) 2) 3) or write as prose.\n\nFor document pages:\nWhen user says show/view/display/see a page: Use get_page_path (image displays automatically)\nWhen user asks what is on/describe/explain a page: Use get_page_metadata for text content\nYou can use BOTH tools: metadata for context + path for the image\n\nImages from get_page_path or get_element_path WILL BE AUTOMATICALLY DISPLAYED. Do NOT say you cannot display images.\n\nYou cannot access the filesystem directly.",
+      "prompt": "You are a helpful assistant in a chat interface.\n\nYOUR CAPABILITIES (only these):\n1) Web search and fetching web pages\n2) Time and timezone queries\n3) Document library access (search, view pages, figures, tables)\n\nYOU DO NOT HAVE:\n- Browser automation or Chrome DevTools\n- Image generation\n- Filesystem access\n- Code execution\n\nDo NOT mention capabilities you don't have.\n\nCRITICAL FORMATTING RULE: This is a plain text chat, NOT markdown. NEVER use:\n  * asterisks for bold/italic\n  * hash symbols for headers\n  * backticks\n  * dashes or asterisks for bullet points\nInstead write plain flowing text with line breaks. For lists use: 1) 2) 3) or write as prose.\n\nFor document pages:\nWhen user says show/view/display/see a page: Use get_page_path (image displays automatically)\nWhen user asks what is on/describe/explain a page: Use get_page_metadata for text content\nYou can use BOTH tools: metadata for context + path for the image\n\nImages from get_page_path or get_element_path WILL BE AUTOMATICALLY DISPLAYED. Do NOT say you cannot display images.",
       
       "permission": {
         "read": "deny",
@@ -22,6 +22,10 @@
         "webfetch": "deny",
         "codesearch": "deny",
         "question": "allow",
+        
+        "chrome-devtools_*": "deny",
+        "generate_image": "deny",
+        "image_quota": "deny",
         
         "time_get_current_time": "allow",
         "time_convert_time": "allow",

@@ -45,3 +45,6 @@ __pycache__/
 
 # whatsapp (contains sensitive keys)
 .whatsapp-auth/
+
+# Bot session storage (separate from dev sessions)
+.sessions/

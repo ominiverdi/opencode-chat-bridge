@@ -15,8 +15,9 @@
   "matrix": {
     "enabled": true,
     "homeserver": "https://matrix.org",
-    "userId": "@llm-assitant:matrix.org",
+    "userId": "{env:MATRIX_USER_ID}",
     "accessToken": "{env:MATRIX_ACCESS_TOKEN}",
+    "password": "{env:MATRIX_PASSWORD}",
     "deviceId": "OPENCODE_BRIDGE_001",
     
     "encryption": {
@@ -27,7 +28,6 @@
     "autoJoin": true,
     
     "triggerPatterns": [
-      "@llm-assitant:",
       "!oc "
     ],
     

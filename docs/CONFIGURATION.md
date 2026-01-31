@@ -114,6 +114,150 @@ Common servers:
 | `doclibrary` | `doclibrary_search_documents`, `doclibrary_list_documents`, etc. |
 | `chrome-devtools` | Browser automation (deny for chat bots) |
 
+### Disabling MCP Servers Locally
+
+Your global OpenCode config (`~/.config/opencode/opencode.json`) may have MCP servers enabled that you don't want the chat bot to use. You can disable them in your local project config.
+
+**Problem:** Global config has `chrome-devtools` enabled, but you don't want the chat bot to use it.
+
+**Solution:** Add an `mcp` section to your project's `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4-5",
+  "default_agent": "chat-bridge",
+  
+  "mcp": {
+    "chrome-devtools": {
+      "enabled": false
+    }
+  },
+  
+  "agent": {
+    "chat-bridge": {
+      ...
+    }
+  }
+}
+```
+
+**How it works:**
+- Local config **overrides** global config
+- You only need to specify `"enabled": false"` - not the full server definition
+- Other MCP servers (time, web-search, doclibrary) remain enabled from global config
+
+**Important:** Disabling the MCP server prevents tools from being loaded. But the model may still "think" it has access if tools were visible in a previous session. For complete blocking, combine with permission denials:
+
+```json
+{
+  "mcp": {
+    "chrome-devtools": { "enabled": false }
+  },
+  
+  "agent": {
+    "chat-bridge": {
+      "permission": {
+        "chrome-devtools_*": "deny"
+      }
+    }
+  }
+}
+```
+
+The wildcard `chrome-devtools_*` denies ALL tools from that MCP server.
+
+### Disabling a Whole MCP Server vs Single Functions
+
+There are two ways to block MCP tools:
+
+#### Method 1: Disable the Entire MCP Server
+
+Use the `mcp` section to prevent the server from loading at all:
+
+```json
+{
+  "mcp": {
+    "chrome-devtools": {
+      "enabled": false
+    }
+  }
+}
+```
+
+This completely disables ALL tools from that server. The tools won't be loaded or visible to the model.
+
+#### Method 2: Deny Individual Functions
+
+Use the `permission` section to block specific tools while keeping others:
+
+```json
+{
+  "agent": {
+    "chat-bridge": {
+      "permission": {
+        "doclibrary_get_page_image": "deny",
+        "doclibrary_get_element_image": "deny"
+      }
+    }
+  }
+}
+```
+
+This allows most doclibrary tools but blocks the two image tools.
+
+#### Method 3: Wildcard Deny All Functions from an MCP
+
+Use `*` to deny all tools from a server without disabling it:
+
+```json
+{
+  "agent": {
+    "chat-bridge": {
+      "permission": {
+        "chrome-devtools_*": "deny"
+      }
+    }
+  }
+}
+```
+
+#### Comparison
+
+| Goal | Method | Config |
+|------|--------|--------|
+| Block entire MCP server | MCP disable | `"mcp": { "server": { "enabled": false } }` |
+| Block all tools from MCP | Wildcard deny | `"permission": { "server_*": "deny" }` |
+| Block one specific tool | Single deny | `"permission": { "server_tool": "deny" }` |
+| Allow one tool, block rest | Selective | `"server_*": "deny"` + `"server_tool": "allow"` |
+
+#### Example: Allow Only Some doclibrary Tools
+
+```json
+{
+  "permission": {
+    "doclibrary_*": "deny",
+    "doclibrary_search_documents": "allow",
+    "doclibrary_list_documents": "allow",
+    "doclibrary_get_page_path": "allow"
+  }
+}
+```
+
+This denies all doclibrary tools by default, then explicitly allows only three.
+
+### Why Both MCP Disable AND Permission Deny?
+
+| Method | What it does |
+|--------|--------------|
+| `mcp.enabled: false` | Server not loaded, tools don't appear |
+| `permission: deny` | Tools blocked at execution time |
+
+Using both provides defense in depth:
+1. MCP disable prevents tools from loading
+2. Permission deny blocks execution if tools somehow load
+3. The model won't list capabilities it can't use
+
 ## CLI Options
 
 ```bash
@@ -301,14 +445,19 @@ DISCORD_TOKEN="..."
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-20250514",
+  "model": "anthropic/claude-sonnet-4-5",
   "default_agent": "chat-bridge",
+  
+  "mcp": {
+    "chrome-devtools": { "enabled": false },
+    "antigravity-img": { "enabled": false }
+  },
   
   "agent": {
     "chat-bridge": {
       "description": "Secure chat assistant",
       "mode": "primary",
-      "prompt": "You are a helpful assistant that can search the web and check time. Keep responses concise.",
+      "prompt": "You are a helpful assistant in a chat interface.\n\nYOUR CAPABILITIES (only these):\n1) Web search and fetching web pages\n2) Time and timezone queries\n3) Document library access\n\nYOU DO NOT HAVE:\n- Browser automation or Chrome DevTools\n- Image generation\n- Filesystem access\n- Code execution\n\nDo NOT mention capabilities you don't have.",
       "permission": {
         "read": "deny",
         "edit": "deny",
@@ -321,27 +470,112 @@ DISCORD_TOKEN="..."
         "webfetch": "deny",
         "codesearch": "deny",
         "question": "allow",
+        
+        "chrome-devtools_*": "deny",
+        "generate_image": "deny",
+        "image_quota": "deny",
+        
         "time_get_current_time": "allow",
         "time_convert_time": "allow",
+        
         "web-search_full-web-search": "allow",
         "web-search_get-web-search-summaries": "allow",
         "web-search_get-single-web-page-content": "allow",
-        "doclibrary_search_documents": "allow",
-        "doclibrary_search_visual_elements": "allow",
-        "doclibrary_list_elements": "allow",
-        "doclibrary_get_element_details": "allow",
-        "doclibrary_list_documents": "allow",
-        "doclibrary_get_library_status": "allow",
-        "doclibrary_get_page_image": "allow",
-        "doclibrary_get_element_image": "allow",
-        "doclibrary_get_document_info": "allow",
-        "doclibrary_find_document": "allow",
-        "doclibrary_list_documents_paginated": "allow"
+        
+        "doclibrary_*": "allow",
+        "doclibrary_get_page_image": "deny",
+        "doclibrary_get_element_image": "deny"
       }
     }
   }
 }
 ```
+
+Note: The `doclibrary_get_page_image` and `doclibrary_get_element_image` tools are denied because they return base64 encoded images which are too large for chat. Use `doclibrary_get_page_path` and `doclibrary_get_element_path` instead - the connectors handle image uploads from file paths.
+
+## Session Management
+
+Bot sessions are stored **outside the project git repo** to prevent them from cluttering your OpenCode session list.
+
+**Why outside the git repo?** OpenCode uses the git root to create a unique project hash. If session directories are inside the repo, all bot sessions end up in the same project hash as your dev sessions. By storing them outside (in `~/.cache/`), OpenCode assigns them to the `global` project instead, keeping them completely separate from your development sessions.
+
+### Session Storage Location
+
+**Default:** `~/.cache/opencode-chat-bridge/sessions/<connector>/<channel-id>/`
+
+**Override:** Set `SESSION_BASE_DIR` environment variable:
+```bash
+SESSION_BASE_DIR=/path/to/sessions
+```
+
+### Session Directory Structure
+
+```
+~/.cache/opencode-chat-bridge/sessions/
+  slack/
+    C0ABC123/     # Slack channel session
+    C0XYZ789/     # Another channel session
+  matrix/
+    _room1_server.org/  # Matrix room session (special chars sanitized)
+  whatsapp/
+    1234567890/   # WhatsApp chat session
+```
+
+### Session Cleanup
+
+Old sessions are automatically cleaned up when connectors start:
+
+```bash
+# .env
+SESSION_RETENTION_DAYS=7  # Default: 7 days
+```
+
+Sessions older than this are deleted on connector startup. This prevents disk space from growing unbounded.
+
+### Session Commands
+
+Users can manage their sessions via chat:
+
+**Slack:**
+- `!oc /status` - Show session info and directory location
+- `!oc /clear` or `!oc /reset` - Clear session history
+- `!oc /help` - Show available commands
+
+**Matrix:**
+- `!oc /status` - Show session info
+- `!oc /clear` or `!oc /reset` - Clear session history
+- `!oc /help` - Show available commands
+
+**WhatsApp:**
+- `!oc /status` - Show session info
+- `!oc /clear` or `!oc /reset` - Clear session history
+- `!oc /help` - Show available commands
+
+### Session Continuity
+
+Each channel/room/chat maintains one persistent session. Users can reference previous conversations as long as:
+1. The session hasn't been manually cleared (`/clear`)
+2. The session is less than `SESSION_RETENTION_DAYS` old
+3. The connector hasn't been restarted (in-memory sessions are lost on restart)
+
+### Debugging Sessions
+
+To inspect a session directory:
+
+```bash
+ls -la ~/.cache/opencode-chat-bridge/sessions/slack/C0ABC123/
+```
+
+OpenCode stores session data in `~/.local/share/opencode/storage/session/<project-hash>/`. Since bot sessions are outside any git repo, they go to the `global` project (`~/.local/share/opencode/storage/session/global/`) instead of your dev project's hash.
+
+To view session files for a specific bot session:
+
+```bash
+cd ~/.cache/opencode-chat-bridge/sessions/slack/C0ABC123
+opencode session list
+```
+
+This won't pollute your main project session list since it's a different "project" (directory outside git).
 
 ## Troubleshooting
 

@@ -18,15 +18,19 @@
 import * as sdk from "matrix-js-sdk"
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
+import { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo } from "../src/session-utils"
 
 // Load configuration
 const config = getConfig()
 const HOMESERVER = config.matrix.homeserver
 const ACCESS_TOKEN = config.matrix.accessToken || process.env.MATRIX_ACCESS_TOKEN
+const PASSWORD = config.matrix.password || process.env.MATRIX_PASSWORD
 const USER_ID = config.matrix.userId || process.env.MATRIX_USER_ID
+const DEVICE_ID = config.matrix.deviceId || process.env.MATRIX_DEVICE_ID || "OPENCODE_BRIDGE"
 const TRIGGER = config.trigger
 const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
+const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 const userLastMessage = new Map<string, number>()
 
 // Per-room ACP sessions with metadata
@@ -40,11 +44,13 @@ const roomSessions = new Map<string, RoomSession>()
 
 class MatrixConnector {
   private matrix: sdk.MatrixClient | null = null
+  private currentAccessToken: string | null = null
   
   async start(): Promise<void> {
     // Validate configuration
-    if (!ACCESS_TOKEN) {
-      console.error("Error: MATRIX_ACCESS_TOKEN not set")
+    if (!PASSWORD && !ACCESS_TOKEN) {
+      console.error("Error: Either MATRIX_PASSWORD or MATRIX_ACCESS_TOKEN must be set")
+      console.error("Password-based login is recommended (tokens don't expire)")
       console.error("Create a .env file with your Matrix credentials")
       process.exit(1)
     }
@@ -56,27 +62,45 @@ class MatrixConnector {
     console.log("Starting Matrix connector...")
     console.log(`  Homeserver: ${HOMESERVER}`)
     console.log(`  User: ${USER_ID}`)
+    console.log(`  Device ID: ${DEVICE_ID}`)
+    console.log(`  Auth: ${PASSWORD ? "password" : "access token"}`)
     console.log(`  Trigger: ${TRIGGER}`)
     
-    // Create Matrix client
-    this.matrix = sdk.createClient({
-      baseUrl: HOMESERVER,
-      accessToken: ACCESS_TOKEN,
-      userId: USER_ID,
-    })
+    // Log session storage location
+    const storageInfo = getSessionStorageInfo()
+    console.log(`  Session storage: ${storageInfo.baseDir}`)
+    console.log(`    (${storageInfo.source})`)
+    
+    // Cleanup old sessions
+    console.log("Cleaning up old sessions...")
+    const cleaned = cleanupOldSessions("matrix", SESSION_RETENTION_DAYS)
+    if (cleaned > 0) {
+      console.log(`  Cleaned up ${cleaned} session(s) older than ${SESSION_RETENTION_DAYS} days`)
+    } else {
+      console.log(`  No old sessions to clean`)
+    }
+    
+    // Login and create client
+    await this.login()
     
     // Handle room messages
-    this.matrix.on(sdk.RoomEvent.Timeline, this.handleRoomEvent.bind(this))
+    this.matrix!.on(sdk.RoomEvent.Timeline, this.handleRoomEvent.bind(this))
     
-    // Debug: log sync state changes  
-    this.matrix.on(sdk.ClientEvent.Sync, (state: string, prevState: string | null) => {
+    // Handle sync state changes and token expiry
+    this.matrix!.on(sdk.ClientEvent.Sync, async (state: string, prevState: string | null) => {
       if (state !== prevState) {
         console.log(`[SYNC] ${prevState} -> ${state}`)
+      }
+      
+      // Handle token expiry - re-login if we have password
+      if (state === "ERROR" && PASSWORD) {
+        console.log("Sync error detected, attempting re-login...")
+        await this.reconnect()
       }
     })
     
     // Handle invites - auto-join
-    this.matrix.on(sdk.RoomMemberEvent.Membership, async (event, member) => {
+    this.matrix!.on(sdk.RoomMemberEvent.Membership, async (event, member) => {
       if (member.membership === "invite" && member.userId === USER_ID) {
         console.log(`Invited to room: ${member.roomId}`)
         try {
@@ -89,8 +113,119 @@ class MatrixConnector {
     })
     
     // Start syncing - get last 10 messages to initialize rooms properly
-    await this.matrix.startClient({ initialSyncLimit: 10 })
+    await this.matrix!.startClient({ initialSyncLimit: 10 })
     console.log("Matrix connector started! Listening for messages...")
+  }
+  
+  private async login(): Promise<void> {
+    if (PASSWORD) {
+      // Password-based login - generates fresh access token
+      console.log("Logging in with password...")
+      
+      // Create temporary client for login
+      const tempClient = sdk.createClient({ baseUrl: HOMESERVER })
+      
+      try {
+        // Extract username from full user ID (@user:server.org -> user)
+        const username = USER_ID!.split(":")[0].replace("@", "")
+        
+        // Try login with localpart first, then full user ID if that fails
+        let loginResponse
+        try {
+          loginResponse = await tempClient.login("m.login.password", {
+            user: username,
+            password: PASSWORD,
+            device_id: DEVICE_ID,
+            initial_device_display_name: "OpenCode Chat Bridge",
+          })
+        } catch (err: any) {
+          if (err.httpStatus === 403) {
+            console.log("  Trying with full user ID...")
+            loginResponse = await tempClient.login("m.login.password", {
+              user: USER_ID!,
+              password: PASSWORD,
+              device_id: DEVICE_ID,
+              initial_device_display_name: "OpenCode Chat Bridge",
+            })
+          } else {
+            throw err
+          }
+        }
+        
+        this.currentAccessToken = loginResponse.access_token
+        console.log(`  Login successful! Device: ${loginResponse.device_id}`)
+        
+        // Create the actual client with the new token
+        this.matrix = sdk.createClient({
+          baseUrl: HOMESERVER,
+          accessToken: this.currentAccessToken!,
+          userId: USER_ID!,
+          deviceId: loginResponse.device_id,
+        })
+      } catch (err: any) {
+        console.error("Password login failed:", err.message || err)
+        throw err
+      }
+    } else {
+      // Access token login (may expire)
+      console.log("Using access token (may expire)...")
+      this.currentAccessToken = ACCESS_TOKEN!
+      
+      this.matrix = sdk.createClient({
+        baseUrl: HOMESERVER,
+        accessToken: ACCESS_TOKEN,
+        userId: USER_ID,
+      })
+    }
+  }
+  
+  private async reconnect(): Promise<void> {
+    if (!PASSWORD) {
+      console.error("Cannot reconnect without password - token expired")
+      return
+    }
+    
+    console.log("Reconnecting...")
+    
+    try {
+      // Stop current client
+      if (this.matrix) {
+        this.matrix.stopClient()
+      }
+      
+      // Re-login
+      await this.login()
+      
+      // Re-attach event handlers
+      this.matrix!.on(sdk.RoomEvent.Timeline, this.handleRoomEvent.bind(this))
+      this.matrix!.on(sdk.ClientEvent.Sync, async (state: string, prevState: string | null) => {
+        if (state !== prevState) {
+          console.log(`[SYNC] ${prevState} -> ${state}`)
+        }
+        if (state === "ERROR" && PASSWORD) {
+          console.log("Sync error detected, attempting re-login...")
+          await this.reconnect()
+        }
+      })
+      this.matrix!.on(sdk.RoomMemberEvent.Membership, async (event, member) => {
+        if (member.membership === "invite" && member.userId === USER_ID) {
+          try {
+            await this.matrix!.joinRoom(member.roomId)
+            console.log(`Joined room: ${member.roomId}`)
+          } catch (err) {
+            console.error(`Failed to join room: ${member.roomId}`, err)
+          }
+        }
+      })
+      
+      // Restart client
+      await this.matrix!.startClient({ initialSyncLimit: 10 })
+      console.log("Reconnected successfully!")
+    } catch (err) {
+      console.error("Reconnection failed:", err)
+      // Wait and try again
+      setTimeout(() => this.reconnect(), 30000)
+    }
   }
   
   private async handleRoomEvent(
@@ -180,11 +315,13 @@ class MatrixConnector {
       if (session) {
         const age = Math.round((Date.now() - session.createdAt.getTime()) / 1000 / 60)
         const lastAct = Math.round((Date.now() - session.lastActivity.getTime()) / 1000 / 60)
+        const sessionDir = getSessionDir("matrix", roomId)
         await this.sendNotice(roomId, 
           `Session status:\n` +
           `- Messages: ${session.messageCount}\n` +
           `- Age: ${age} minutes\n` +
-          `- Last activity: ${lastAct} minutes ago`
+          `- Last activity: ${lastAct} minutes ago\n` +
+          `- Directory: ${sessionDir}`
         )
       } else {
         await this.sendNotice(roomId, "No active session for this room.")
@@ -222,7 +359,11 @@ class MatrixConnector {
   private async getOrCreateSession(roomId: string): Promise<RoomSession | null> {
     let session = roomSessions.get(roomId)
     if (!session) {
-      const client = new ACPClient({ cwd: process.cwd() })
+      // Get dedicated session directory for this room
+      const sessionDir = getSessionDir("matrix", roomId)
+      ensureSessionDir(sessionDir)
+      
+      const client = new ACPClient({ cwd: sessionDir })
       
       try {
         await client.connect()
@@ -235,6 +376,7 @@ class MatrixConnector {
         }
         roomSessions.set(roomId, session)
         console.log(`Created new ACP session for room: ${roomId}`)
+        console.log(`  Session directory: ${sessionDir}`)
       } catch (err) {
         console.error(`Failed to create ACP session:`, err)
         return null

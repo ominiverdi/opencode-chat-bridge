@@ -28,6 +28,7 @@ import * as fs from "fs"
 import * as path from "path"
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
+import { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo } from "../src/session-utils"
 
 // Simple logger for Baileys
 const logger = {
@@ -48,6 +49,7 @@ const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const ALLOWED_NUMBERS = config.whatsapp.allowedNumbers
 const AUTH_FOLDER = path.resolve(process.cwd(), config.whatsapp.authFolder)
+const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 
 // Rate limiting
 const userLastMessage = new Map<string, number>()
@@ -74,6 +76,20 @@ class WhatsAppConnector {
       console.log(`  Allowed numbers: ${ALLOWED_NUMBERS.join(", ")}`)
     } else {
       console.log(`  Allowed numbers: ALL (no filter)`)
+    }
+    
+    // Log session storage location
+    const storageInfo = getSessionStorageInfo()
+    console.log(`  Session storage: ${storageInfo.baseDir}`)
+    console.log(`    (${storageInfo.source})`)
+    
+    // Cleanup old sessions
+    console.log("Cleaning up old sessions...")
+    const cleaned = cleanupOldSessions("whatsapp", SESSION_RETENTION_DAYS)
+    if (cleaned > 0) {
+      console.log(`  Cleaned up ${cleaned} session(s) older than ${SESSION_RETENTION_DAYS} days`)
+    } else {
+      console.log(`  No old sessions to clean`)
     }
     
     await this.connect()
@@ -218,11 +234,13 @@ class WhatsAppConnector {
       if (session) {
         const age = Math.round((Date.now() - session.createdAt.getTime()) / 1000 / 60)
         const lastAct = Math.round((Date.now() - session.lastActivity.getTime()) / 1000 / 60)
+        const sessionDir = getSessionDir("whatsapp", chatId)
         await this.sendMessage(chatId,
           `Session status:\n` +
           `- Messages: ${session.messageCount}\n` +
           `- Age: ${age} minutes\n` +
-          `- Last activity: ${lastAct} minutes ago`
+          `- Last activity: ${lastAct} minutes ago\n` +
+          `- Directory: ${sessionDir}`
         )
       } else {
         await this.sendMessage(chatId, "No active session for this chat.")
@@ -262,7 +280,11 @@ class WhatsAppConnector {
   private async getOrCreateSession(chatId: string): Promise<ChatSession | null> {
     let session = chatSessions.get(chatId)
     if (!session) {
-      const client = new ACPClient({ cwd: process.cwd() })
+      // Get dedicated session directory for this chat
+      const sessionDir = getSessionDir("whatsapp", chatId)
+      ensureSessionDir(sessionDir)
+      
+      const client = new ACPClient({ cwd: sessionDir })
       
       try {
         await client.connect()
@@ -275,6 +297,7 @@ class WhatsAppConnector {
         }
         chatSessions.set(chatId, session)
         console.log(`Created new ACP session for chat: ${chatId}`)
+        console.log(`  Session directory: ${sessionDir}`)
       } catch (err) {
         console.error(`Failed to create ACP session:`, err)
         return null
