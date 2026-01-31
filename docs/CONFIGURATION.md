@@ -1,188 +1,225 @@
 # Configuration Reference
 
-This document describes all configuration options for opencode-chat-bridge standalone mode.
+This document describes all configuration options for opencode-chat-bridge.
 
 ## Quick Setup
 
-The standalone bridge requires minimal configuration:
+1. Create `opencode.json` with the `chat-bridge` agent
+2. Run `bun src/cli.ts`
 
-1. **Environment variable** - Matrix access token
-2. **standalone.ts** - Bot user ID and trigger patterns
-3. **opencode.json** - Model and permissions
+## opencode.json (Required)
 
-## IMPORTANT: opencode.json is Required
-
-The `opencode.json` file is **mandatory** for the bridge to work. Without it:
-- Prompts fail with `TypeError: agent.name undefined`
-- Bot responds with "No response generated"
-
-**Never use the `plugin` line** in your config:
-```json
-// DO NOT USE - causes "Cannot call a class constructor" error
-"plugin": ["./src/index.ts"]
-```
-
-The plugin approach is documented in `src/` but does not work due to ESM/bundling issues with OpenCode's plugin loader.
-
-## MCP Tool Permissions
-
-MCP tools follow the naming pattern `<servername>_<toolname>` (single underscore).
-
-**Examples:**
-- `doclibrary_list_documents`
-- `doclibrary_search_documents`  
-- `time_get_current_time`
-- `web-search_full-web-search`
-
-### Permission Patterns
-
-**Allow all MCP tools:**
-```json
-"permission": {
-  "*": "deny",
-  "mcp": "allow"
-}
-```
-
-**Allow specific MCP server:**
-```json
-"permission": {
-  "*": "deny",
-  "doclibrary_*": "allow",
-  "time_*": "allow"
-}
-```
-
-**Allow specific tools:**
-```json
-"permission": {
-  "*": "deny",
-  "doclibrary_list_documents": "allow",
-  "doclibrary_search_documents": "allow"
-}
-```
-
-Note: The glob pattern `*` matches zero or more characters. So `doclibrary_*` matches all tools from the doclibrary MCP server.
-
-## Environment Variables
-
-Create a `.env` file:
-
-```bash
-# Required: Matrix access token
-MATRIX_ACCESS_TOKEN="syt_your_token_here"
-
-# Optional: OpenCode server URL (default: http://127.0.0.1:4096)
-OPENCODE_URL="http://127.0.0.1:4096"
-```
-
-## Standalone Configuration
-
-Edit `standalone.ts` to customize:
-
-```typescript
-// OpenCode server
-const OPENCODE_URL = process.env.OPENCODE_URL || 'http://127.0.0.1:4096'
-
-// Matrix settings
-const MATRIX_HOMESERVER = 'https://matrix.org'
-const MATRIX_USER_ID = '@your-bot:matrix.org'
-const MATRIX_ACCESS_TOKEN = process.env.MATRIX_ACCESS_TOKEN
-
-// Message patterns that trigger the bot
-const TRIGGER_PATTERNS = ['@your-bot:', '!oc ']
-
-// Mode command mappings
-const MODES: Record<string, string> = {
-  '!s': 'serious',
-  '!d': 'sarcastic',
-  '!a': 'agent',
-  '!p': 'plan',
-}
-```
-
-### Trigger Patterns
-
-Messages containing any trigger pattern will be processed:
-
-```typescript
-// Examples that would trigger:
-// "@your-bot: hello" -> "hello"
-// "!oc what is QGIS?" -> "what is QGIS?"
-// "Hey @your-bot: help" -> "Hey  help"
-
-const TRIGGER_PATTERNS = [
-  '@your-bot:',    // Mention
-  '!oc ',          // Command prefix
-  '!ai ',          // Alternative prefix
-]
-```
-
-### Mode Commands
-
-Mode commands switch between OpenCode agents:
-
-```typescript
-const MODES = {
-  '!s': 'serious',    // Default helpful mode
-  '!d': 'sarcastic',  // Witty responses
-  '!a': 'agent',      // Multi-turn research
-  '!p': 'plan',       // Planning without edits
-  '!r': 'researcher', // Custom agent
-}
-```
-
-Usage: `!oc !s explain async/await`
-
-The mode prefix is stripped, and the remaining text is sent to the specified agent.
-
-## OpenCode Configuration
-
-Create `opencode.json` in the project directory:
+The `opencode.json` file defines the secure agent configuration:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  
-  "model": "anthropic/claude-sonnet-4-20250514",
-  
-  "permission": {
-    "*": "deny",
-    "webfetch": "allow",
-    "read": "allow",
-    "edit": "deny",
-    "bash": "deny",
-    "glob": "allow",
-    "grep": "allow",
-    "external_directory": "deny"
-  },
-  
+  "default_agent": "chat-bridge",
   "agent": {
-    "serious": {
+    "chat-bridge": {
+      "description": "Secure chat assistant",
       "mode": "primary",
-      "description": "Helpful assistant for general questions",
-      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "You are a helpful assistant. You can search the web and check time.",
       "permission": {
-        "*": "deny",
-        "webfetch": "allow"
-      }
-    },
-    "sarcastic": {
-      "mode": "primary",
-      "description": "Witty, humorous assistant",
-      "model": "anthropic/claude-sonnet-4-20250514",
-      "permission": {
-        "*": "deny",
-        "webfetch": "allow"
+        "read": "deny",
+        "edit": "deny",
+        "bash": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "task": "deny",
+        "todowrite": "deny",
+        "todoread": "deny",
+        "webfetch": "deny",
+        "codesearch": "deny",
+        "question": "allow",
+        "time_get_current_time": "allow",
+        "time_convert_time": "allow",
+        "web-search_full-web-search": "allow",
+        "web-search_get-web-search-summaries": "allow",
+        "web-search_get-single-web-page-content": "allow",
+        "doclibrary_*": "allow"
       }
     }
   }
 }
 ```
 
-### Model Selection
+### Key Settings
 
-Specify the default model:
+| Setting | Description |
+|---------|-------------|
+| `default_agent` | Agent used by default for new sessions |
+| `agent.*.mode` | `"primary"` for main agents, `"subagent"` for helpers |
+| `agent.*.prompt` | System prompt for the agent |
+| `agent.*.permission` | Tool permissions (allow/deny/ask) |
+
+## Permission Configuration
+
+### Permission Actions
+
+| Action | Behavior |
+|--------|----------|
+| `"allow"` | Tool executes immediately |
+| `"deny"` | Tool blocked, error returned to LLM |
+| `"ask"` | Requires user confirmation |
+
+For chat bots, use `"allow"` or `"deny"`. The `"ask"` action requires interactive confirmation.
+
+### Tool Names
+
+Built-in tools:
+- `read` - Read files
+- `edit` - Edit files
+- `bash` - Execute commands
+- `glob` - Find files
+- `grep` - Search file contents
+- `task` - Spawn subagents
+- `todowrite` - Write todos
+- `todoread` - Read todos
+- `webfetch` - Fetch URLs
+- `codesearch` - Search code
+- `question` - Ask user questions
+
+### MCP Tool Permissions
+
+MCP tools use the pattern `<server>_<tool>`:
+
+```json
+{
+  "permission": {
+    "time_get_current_time": "allow",
+    "time_convert_time": "allow",
+    "web-search_*": "allow",
+    "doclibrary_*": "allow"
+  }
+}
+```
+
+**Wildcard matching:** `*` matches any characters, so `doclibrary_*` allows all doclibrary tools.
+
+### Available MCP Servers
+
+Check installed MCP servers:
+
+```bash
+opencode mcp list
+```
+
+Common servers:
+
+| Server | Tools |
+|--------|-------|
+| `time` | `time_get_current_time`, `time_convert_time` |
+| `web-search` | `web-search_full-web-search`, `web-search_get-web-search-summaries`, `web-search_get-single-web-page-content` |
+| `doclibrary` | `doclibrary_search_documents`, `doclibrary_list_documents`, etc. |
+| `chrome-devtools` | Browser automation (deny for chat bots) |
+
+## CLI Options
+
+```bash
+# Interactive mode
+bun src/cli.ts
+
+# Single prompt
+bun src/cli.ts "What time is it?"
+
+# With a skill
+bun src/cli.ts --skill=sarcastic "Tell me a joke"
+
+# List available skills
+bun src/cli.ts --list-skills
+```
+
+### Interactive Commands
+
+| Command | Description |
+|---------|-------------|
+| `/skills` | List available skills |
+| `/skill <name>` | Switch to a skill |
+| `exit` | Exit the CLI |
+| `quit` | Exit the CLI |
+
+## Skills Configuration
+
+Create skills in `skills/*.md`:
+
+```markdown
+---
+description: Witty assistant with humor
+---
+
+# Sarcastic Mode
+
+You are a witty, sarcastic assistant. Add humor to your responses while still being helpful.
+
+Rules:
+- Keep responses concise
+- Use clever wordplay
+- Be helpful despite the snark
+```
+
+### Skill Metadata
+
+| Field | Description |
+|-------|-------------|
+| `description` | Shown in `--list-skills` output |
+
+The content after the frontmatter becomes the system prompt.
+
+## Agent Configuration
+
+### Multiple Agents
+
+Define multiple agents for different purposes:
+
+```json
+{
+  "agent": {
+    "chat-bridge": {
+      "description": "Secure chat assistant",
+      "mode": "primary",
+      "permission": {
+        "read": "deny",
+        "bash": "deny"
+      }
+    },
+    "researcher": {
+      "description": "Deep research mode",
+      "mode": "primary",
+      "permission": {
+        "web-search_*": "allow"
+      }
+    },
+    "coder": {
+      "description": "Code-focused assistant",
+      "mode": "primary",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": "deny"
+      }
+    }
+  }
+}
+```
+
+### Agent Settings
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `mode` | `"primary"` or `"subagent"` | `"all"` |
+| `description` | Human-readable description | - |
+| `prompt` | System prompt | OpenCode default |
+| `model` | LLM model override | Config default |
+| `temperature` | Response randomness | Model default |
+| `permission` | Tool permissions | Config default |
+
+## Model Configuration
+
+### Default Model
+
+Set in `opencode.json`:
 
 ```json
 {
@@ -190,256 +227,149 @@ Specify the default model:
 }
 ```
 
-Available providers:
-- `anthropic/claude-sonnet-4-*` - Claude Sonnet 4
-- `anthropic/claude-3-5-*` - Claude 3.5 models
-- `openai/gpt-4o` - GPT-4o
-- `google/gemini-*` - Gemini models
+### Per-Agent Model
 
-### Permissions
-
-For chat bot use cases, lock down permissions:
-
-```json
-{
-  "permission": {
-    "*": "deny",           // Deny all by default
-    "webfetch": "allow",   // Allow web fetching
-    "read": "deny",        // No file reading
-    "edit": "deny",        // No file editing
-    "bash": "deny",        // No shell commands
-    "external_directory": "deny"  // No access outside project
-  }
-}
-```
-
-Permission levels:
-- `"allow"` - Always permit
-- `"deny"` - Always deny
-- `"ask"` - Prompt for confirmation (not useful for chat)
-
-### Custom Agents
-
-Define agents with specific capabilities:
+Override for specific agents:
 
 ```json
 {
   "agent": {
-    "researcher": {
-      "mode": "primary",
-      "description": "Deep research with web access",
-      "model": "anthropic/claude-sonnet-4-20250514",
-      "prompt": "You are a thorough researcher. Always cite sources.",
-      "permission": {
-        "*": "deny",
-        "webfetch": "allow"
-      }
-    },
-    "coder": {
-      "mode": "primary",
-      "description": "Code-focused assistant",
-      "model": "anthropic/claude-sonnet-4-20250514",
-      "permission": {
-        "*": "deny",
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow"
-      }
+    "fast-helper": {
+      "model": "anthropic/claude-haiku-4-5",
+      "permission": { "read": "deny" }
     }
   }
 }
 ```
 
-### MCP Servers
+### Available Models
 
-Add custom tools via MCP:
+Check available models:
 
-```json
-{
-  "mcp": {
-    "knowledge-base": {
-      "type": "local",
-      "command": ["python", "-m", "my_kb.mcp"]
-    },
-    "web-search": {
-      "type": "local", 
-      "command": ["npx", "web-search-mcp"]
-    }
-  }
-}
-```
-
-## Getting Matrix Credentials
-
-### Create Bot Account
-
-1. Go to https://app.element.io
-2. Create account (e.g., `my-opencode-bot`)
-3. Note the full user ID: `@my-opencode-bot:matrix.org`
-
-### Get Access Token
-
-**Method 1: Element Web**
-1. Log in to Element with bot account
-2. Settings > Help & About
-3. Scroll to "Access Token"
-4. Click to reveal and copy
-
-**Method 2: API**
 ```bash
-curl -X POST "https://matrix.org/_matrix/client/r0/login" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "m.login.password",
-    "user": "@mybot:matrix.org",
-    "password": "your-password"
-  }'
+opencode model list
 ```
 
-### Invite Bot to Rooms
+Common models:
+- `anthropic/claude-sonnet-4-*` - Good balance
+- `anthropic/claude-opus-4-*` - Most capable
+- `anthropic/claude-haiku-4-*` - Fastest
+- `openai/gpt-4o` - OpenAI
+- `google/gemini-*` - Google
 
-The bot must be a member of rooms to respond:
+## Environment Variables
 
-1. Open room in Element
-2. Room Settings > People > Invite
-3. Enter bot's user ID
+Optional environment variables:
+
+```bash
+# OpenCode configuration
+OPENCODE_MODEL="anthropic/claude-sonnet-4-20250514"
+OPENCODE_CONFIG="/path/to/opencode.json"
+
+# For chat connectors
+MATRIX_ACCESS_TOKEN="syt_..."
+DISCORD_TOKEN="..."
+```
 
 ## Example Configurations
 
-### Minimal Setup
+### Minimal (CLI Only)
 
-`.env`:
-```bash
-MATRIX_ACCESS_TOKEN="syt_xxxxx..."
-```
-
-`opencode.json` (minimum required):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-20250514",
+  "default_agent": "chat-bridge",
   "agent": {
-    "serious": {
+    "chat-bridge": {
       "mode": "primary",
-      "description": "Helpful assistant"
-    }
-  }
-}
-```
-
-Note: The `agent` section with at least one agent is required. The standalone bridge uses the "serious" agent by default (via `!s` mode command).
-
-### Production Setup (Default Personality)
-
-Without a custom prompt, the bot uses Claude Code's default personality and automatically describes its available tools.
-
-`.env`:
-```bash
-MATRIX_ACCESS_TOKEN="syt_xxxxx..."
-OPENCODE_URL="http://127.0.0.1:4096"
-```
-
-`opencode.json`:
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-20250514",
-  
-  "permission": {
-    "*": "deny",
-    "webfetch": "allow",
-    "read": "allow",
-    "glob": "allow",
-    "grep": "allow"
-  },
-  
-  "agent": {
-    "serious": {
-      "mode": "primary",
-      "description": "Helpful assistant for general questions",
-      "model": "anthropic/claude-sonnet-4-20250514",
       "permission": {
-        "*": "deny",
-        "webfetch": "allow"
-      }
-    },
-    "sarcastic": {
-      "mode": "primary",
-      "description": "Witty, humorous assistant",
-      "model": "anthropic/claude-sonnet-4-20250514",
-      "permission": {
-        "*": "deny",
-        "webfetch": "allow"
+        "read": "deny",
+        "edit": "deny",
+        "bash": "deny",
+        "time_*": "allow",
+        "web-search_*": "allow"
       }
     }
   }
 }
 ```
 
-### Production Setup (Custom Personality)
+### Full Production
 
-Use a custom `prompt` to give the bot a specialized personality:
-
-`opencode.json`:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4-20250514",
-  
-  "permission": {
-    "*": "deny",
-    "mcp": "allow"
-  },
+  "default_agent": "chat-bridge",
   
   "agent": {
-    "serious": {
+    "chat-bridge": {
+      "description": "Secure chat assistant",
       "mode": "primary",
-      "description": "Document library assistant",
-      "model": "anthropic/claude-sonnet-4-20250514",
-      "prompt": "You are a document library assistant responding via Matrix chat.\n\nRULES:\n1. PLAIN TEXT ONLY: No markdown formatting.\n2. SHORT ANSWERS: Maximum 2-3 sentences for simple questions.\n3. USE DOCLIBRARY MCP: For any library/document questions, use doclibrary tools.",
+      "prompt": "You are a helpful assistant that can search the web and check time. Keep responses concise.",
       "permission": {
-        "*": "deny",
-        "mcp": "allow"
+        "read": "deny",
+        "edit": "deny",
+        "bash": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "task": "deny",
+        "todowrite": "deny",
+        "todoread": "deny",
+        "webfetch": "deny",
+        "codesearch": "deny",
+        "question": "allow",
+        "time_get_current_time": "allow",
+        "time_convert_time": "allow",
+        "web-search_full-web-search": "allow",
+        "web-search_get-web-search-summaries": "allow",
+        "web-search_get-single-web-page-content": "allow",
+        "doclibrary_search_documents": "allow",
+        "doclibrary_search_visual_elements": "allow",
+        "doclibrary_list_elements": "allow",
+        "doclibrary_get_element_details": "allow",
+        "doclibrary_list_documents": "allow",
+        "doclibrary_get_library_status": "allow",
+        "doclibrary_get_page_image": "allow",
+        "doclibrary_get_element_image": "allow",
+        "doclibrary_get_document_info": "allow",
+        "doclibrary_find_document": "allow",
+        "doclibrary_list_documents_paginated": "allow"
       }
     }
   }
 }
 ```
-
-This creates a specialized assistant that identifies as a "document library assistant" instead of "Claude Code".
 
 ## Troubleshooting
 
-### "MATRIX_ACCESS_TOKEN not set"
+### "Agent not found"
 
-Ensure `.env` file exists and is sourced:
-```bash
-source .env
-echo $MATRIX_ACCESS_TOKEN  # Should print token
+Ensure `default_agent` matches an agent name:
+
+```json
+{
+  "default_agent": "chat-bridge",
+  "agent": {
+    "chat-bridge": { ... }
+  }
+}
 ```
 
-### "Failed to connect to OpenCode"
+### "Tool blocked"
 
-1. Start OpenCode server first:
-   ```bash
-   opencode serve --port 4096
-   ```
-2. Check URL matches `OPENCODE_URL`
-3. Verify server is running:
-   ```bash
-   curl http://127.0.0.1:4096/session
-   ```
+Check permission configuration. Tool calls are blocked if:
+- Tool is set to `"deny"`
+- Tool not explicitly allowed and no default `"*": "allow"`
 
-### "Bot not responding"
+### "No response"
 
-1. Check bot is in the room
-2. Verify trigger pattern matches
-3. Check logs for errors
-4. Test with exact trigger: `!oc hello`
+1. Check OpenCode is installed: `opencode --version`
+2. Check `opencode.json` exists in working directory
+3. Check for errors in output
 
-### "Access token invalid"
+### "Skill not found"
 
-Tokens can expire. Generate a new one:
-1. Log in to Element with bot account
-2. Settings > Help & About > Access Token
-3. Update `.env` and restart bridge
+1. Check skill file exists in `skills/` directory
+2. Check file extension is `.md`
+3. Check frontmatter is valid YAML

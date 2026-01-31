@@ -1,36 +1,53 @@
 {
   "$schema": "https://opencode.ai/config.json",
   
-  "model": "anthropic/claude-sonnet-4-20250514",
+  "default_agent": "chat-bridge",
   
-  "default_agent": "serious" ,
   "agent": {
-    "serious": {
+    "chat-bridge": {
+      "description": "Secure chat assistant with limited tools - only MCP servers, no filesystem access",
       "mode": "primary",
-      "description": "Document library assistant for geospatial and surveying materials",
-      "model": "anthropic/claude-sonnet-4-20250514",
-      "prompt": "I am a librarian",
-      "tools": {
-        "doclibrary*": true,
-        "time*": true,
-        "web-search*": true,
-        "chrome-devtools*": true
-      },
+      "prompt": "You are a helpful assistant that can search the web, check the time, and search documents. You cannot read, write, or execute files on the filesystem. If asked to do so, politely explain your limitations.",
+      
       "permission": {
-        "*": "deny",
-        "mcp*": "allow",
-	"web-search*":"allow",
-	"time*":"allow"
-      }
-    },
-    "sarcastic": {
-      "mode": "primary",
-      "description": "Witty, humorous assistant",
-      "model": "anthropic/claude-sonnet-4-20250514",
-      "permission": {
-        "*": "deny",
-        "webfetch": "allow"
+        "read": "deny",
+        "edit": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "todowrite": "deny",
+        "todoread": "deny",
+        "webfetch": "deny",
+        "codesearch": "deny",
+        "question": "allow",
+        
+        "time_get_current_time": "allow",
+        "time_convert_time": "allow",
+        
+        "web-search_full-web-search": "allow",
+        "web-search_get-web-search-summaries": "allow",
+        "web-search_get-single-web-page-content": "allow",
+        
+        "doclibrary_search_documents": "allow",
+        "doclibrary_search_visual_elements": "allow",
+        "doclibrary_list_elements": "allow",
+        "doclibrary_get_element_details": "allow",
+        "doclibrary_list_documents": "allow",
+        "doclibrary_get_library_status": "allow",
+        "doclibrary_get_document_info": "allow",
+        "doclibrary_find_document": "allow",
+        "doclibrary_list_documents_paginated": "allow",
+        
+        "doclibrary_get_page_path": "allow",
+        "doclibrary_get_element_path": "allow",
+        
+        "doclibrary_get_page_image": "deny",
+        "doclibrary_get_element_image": "deny"
       }
     }
+  },
+  
+  "permission": {
   }
 }

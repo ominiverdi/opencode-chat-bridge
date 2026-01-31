@@ -1,12 +1,14 @@
 # Matrix Setup Guide
 
-This guide walks through setting up Matrix for the opencode-chat-bridge.
+This guide walks through setting up Matrix for a future Matrix connector using opencode-chat-bridge.
+
+> **Note:** The Matrix connector is planned but not yet implemented. This guide provides the foundation for when it's built.
 
 ## Prerequisites
 
 - A Matrix account for your bot
 - `bun` runtime installed
-- OpenCode installed (`~/.opencode/bin/opencode`)
+- OpenCode installed (`opencode --version`)
 
 ## Step 1: Create Bot Account
 
@@ -58,24 +60,14 @@ Response:
 }
 ```
 
-## Step 3: Configure the Bridge
+## Step 3: Store Credentials
 
-### Create `.env` file
+Create `.env` file:
 
 ```bash
 MATRIX_ACCESS_TOKEN="syt_xxxxx..."
-```
-
-### Update `standalone.ts`
-
-Edit the configuration section:
-
-```typescript
-const MATRIX_HOMESERVER = 'https://matrix.org'
-const MATRIX_USER_ID = '@my-opencode-bot:matrix.org'
-
-// Customize trigger patterns
-const TRIGGER_PATTERNS = ['@my-opencode-bot:', '!oc ']
+MATRIX_HOMESERVER="https://matrix.org"
+MATRIX_USER_ID="@my-opencode-bot:matrix.org"
 ```
 
 ## Step 4: Invite Bot to Rooms
@@ -98,133 +90,115 @@ In Element or your Matrix client:
 3. Make it **not encrypted** (easier for testing)
 4. Invite your bot
 
-## Step 5: Start the Bridge
+## Future: Matrix Connector Architecture
 
-### Terminal 1: Start OpenCode Server
+When the Matrix connector is built, it will use the ACPClient:
 
-```bash
-cd ~/github/opencode-chat-bridge
-opencode serve --port 4096
+```typescript
+import { ACPClient } from "../src"
+import { MatrixClient } from "matrix-js-sdk"
+
+class MatrixConnector {
+  private acp: ACPClient
+  private matrix: MatrixClient
+  
+  async start() {
+    // Connect to OpenCode via ACP
+    this.acp = new ACPClient({ cwd: process.cwd() })
+    await this.acp.connect()
+    await this.acp.createSession()
+    
+    // Connect to Matrix
+    this.matrix = MatrixClient.create({
+      baseUrl: process.env.MATRIX_HOMESERVER,
+      accessToken: process.env.MATRIX_ACCESS_TOKEN,
+      userId: process.env.MATRIX_USER_ID,
+    })
+    
+    // Handle messages
+    this.matrix.on("Room.timeline", this.handleMessage.bind(this))
+    await this.matrix.startClient()
+  }
+  
+  async handleMessage(event) {
+    if (event.getType() !== "m.room.message") return
+    if (event.getSender() === this.matrix.getUserId()) return
+    
+    const text = event.getContent().body
+    if (!this.shouldRespond(text)) return
+    
+    // Stream response to Matrix
+    let buffer = ""
+    this.acp.on("chunk", (chunk) => {
+      buffer += chunk
+      if (buffer.length > 500 || buffer.endsWith(".")) {
+        this.matrix.sendMessage(event.getRoomId(), buffer)
+        buffer = ""
+      }
+    })
+    
+    await this.acp.prompt(text)
+    if (buffer) this.matrix.sendMessage(event.getRoomId(), buffer)
+  }
+  
+  shouldRespond(text: string): boolean {
+    return text.includes("@my-opencode-bot:") || text.startsWith("!oc ")
+  }
+}
 ```
-
-You should see:
-```
-Starting server on :4096
-```
-
-### Terminal 2: Start the Bridge
-
-```bash
-cd ~/github/opencode-chat-bridge
-source .env
-bun standalone.ts
-```
-
-You should see:
-```
-Connecting to OpenCode at http://127.0.0.1:4096...
-OpenCode connected (0 existing sessions)
-Connecting to Matrix as @my-opencode-bot:matrix.org...
-Starting Matrix client...
-Matrix sync complete, ready to receive messages!
-Trigger patterns: @my-opencode-bot:, !oc 
-Mode commands: !s, !d, !a, !p
-Bridge running. Press Ctrl+C to stop.
-```
-
-## Step 6: Test It
-
-In your Matrix room, send:
-
-```
-!oc Hello, what can you do?
-```
-
-The bot should respond within a few seconds.
 
 ## Trigger Patterns
 
-The bot responds when messages contain:
+Common patterns for bot invocation:
 
 | Pattern | Example |
 |---------|---------|
 | `@bot:` | `@my-opencode-bot: what is Python?` |
 | `!oc ` | `!oc explain async/await` |
 
-You can add more patterns in `standalone.ts`.
+## Security Considerations
 
-## Mode Commands
+### Use Unencrypted Rooms
 
-After the trigger, you can specify a mode:
+E2EE (end-to-end encryption) requires additional setup:
+- Device verification
+- Key storage
+- Cross-signing
 
-| Mode | Usage | Description |
-|------|-------|-------------|
-| `!s` | `!oc !s question` | Serious/helpful mode |
-| `!d` | `!oc !d question` | Sarcastic/witty mode |
-| `!a` | `!oc !a topic` | Agent research mode |
-| `!p` | `!oc !p task` | Planning mode |
+For simplicity, start with unencrypted rooms.
 
-Example:
+### Permission Isolation
+
+The bot uses the `chat-bridge` agent with restricted permissions:
+- No file reading
+- No command execution
+- Only safe MCP tools
+
+### Rate Limiting
+
+Implement per-user rate limiting:
+
+```typescript
+const userLimits = new Map<string, number>()
+
+function canRespond(userId: string): boolean {
+  const now = Date.now()
+  const last = userLimits.get(userId) || 0
+  if (now - last < 5000) return false  // 5 second cooldown
+  userLimits.set(userId, now)
+  return true
+}
 ```
-!oc !a research the history of QGIS
-```
-
-## Troubleshooting
-
-### Bot Not Responding
-
-1. **Check bot is in the room**
-   - In Element, open room > People
-   - Bot should be listed
-
-2. **Check trigger pattern**
-   - Must match exactly
-   - Try: `!oc hello`
-
-3. **Check logs**
-   - Look at Terminal 2 for errors
-   - Look for "Message from" log lines
-
-4. **Check OpenCode server**
-   - Is Terminal 1 running?
-   - Try: `curl http://127.0.0.1:4096/session`
-
-### "Access token invalid"
-
-Tokens can expire or be revoked:
-1. Log back into Element with bot account
-2. Go to Settings > Help & About
-3. Get new access token
-4. Update `.env`
-5. Restart the bridge
-
-### Connection Errors
-
-```
-Error: Failed to connect to homeserver
-```
-
-1. Verify homeserver URL is correct
-2. Check internet connectivity
-3. Ensure matrix.org is not down
-4. Try HTTPS if HTTP fails
-
-### "Unable to decrypt"
-
-If you're in an encrypted room:
-1. E2EE is not fully supported in standalone mode
-2. Create a new **unencrypted** room for testing
-3. Or use the full plugin approach (if/when it works)
 
 ## Running as a Service
 
-For production, create a systemd service:
+When the connector is ready, create a systemd service:
 
-### `/etc/systemd/system/opencode-bridge.service`
+### `/etc/systemd/system/opencode-matrix.service`
 
 ```ini
 [Unit]
-Description=OpenCode Chat Bridge
+Description=OpenCode Matrix Bridge
 After=network.target
 
 [Service]
@@ -232,7 +206,7 @@ Type=simple
 User=youruser
 WorkingDirectory=/home/youruser/opencode-chat-bridge
 EnvironmentFile=/home/youruser/opencode-chat-bridge/.env
-ExecStart=/usr/bin/bun standalone.ts
+ExecStart=/usr/bin/bun connectors/matrix.ts
 Restart=always
 RestartSec=10
 
@@ -240,34 +214,51 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Don't forget to also run `opencode serve` as a service.
-
 ### Start the Service
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable opencode-bridge
-sudo systemctl start opencode-bridge
+sudo systemctl enable opencode-matrix
+sudo systemctl start opencode-matrix
 
 # Check status
-sudo systemctl status opencode-bridge
+sudo systemctl status opencode-matrix
 
 # View logs
-journalctl -u opencode-bridge -f
+journalctl -u opencode-matrix -f
 ```
 
-## Security Best Practices
+## Troubleshooting
 
-1. **Use environment variables** - Never commit tokens to git
-2. **Use a dedicated account** - Don't use personal Matrix accounts
-3. **Limit room access** - Only join rooms you control
-4. **Monitor logs** - Watch for abuse patterns
-5. **Use unencrypted rooms** - Simpler security model for bots
+### Bot Not Responding
+
+1. Check bot is in the room
+2. Check trigger pattern matches
+3. Check OpenCode is working: `bun src/cli.ts "test"`
+4. Check Matrix credentials are valid
+
+### "Access token invalid"
+
+Tokens can expire or be revoked:
+1. Log back into Element with bot account
+2. Get new access token
+3. Update `.env`
+4. Restart the connector
+
+### Connection Errors
+
+1. Verify homeserver URL is correct
+2. Check internet connectivity
+3. Ensure matrix.org is not down
+4. Try HTTPS if HTTP fails
 
 ## Next Steps
 
-Once basic setup works:
-1. Customize trigger patterns for your use case
-2. Define custom agents in `opencode.json`
-3. Add MCP servers for custom tools
-4. Consider session persistence for production
+When the Matrix connector is built:
+1. Clone the repository
+2. Configure `.env` with Matrix credentials
+3. Run `bun connectors/matrix.ts`
+4. Invite bot to rooms
+5. Start chatting!
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for connector design patterns.

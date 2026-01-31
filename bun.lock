@@ -5,6 +5,7 @@
     "": {
       "name": "opencode-chat-bridge",
       "dependencies": {
+        "@agentclientprotocol/sdk": "^0.13.1",
         "matrix-js-sdk": "^34.0.0",
       },
       "devDependencies": {
@@ -18,6 +19,8 @@
     },
   },
   "packages": {
+    "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@0.13.1", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-6byvu+F/xc96GBkdAx4hq6/tB3vT63DSBO4i3gYCz8nuyZMerVFna2Gkhm8EHNpZX0J9DjUxzZCW+rnHXUg0FA=="],
+
     "@babel/runtime": ["@babel/runtime@7.28.6", "", {}, "sha512-05WQkdpL9COIMz4LjTxGpPNCdlpyimKppYNoJ5Di5EUObifl8t4tuLuUBBZEpoLYOmfvIWrsp9fCl0HoPRVTdA=="],
 
     "@matrix-org/matrix-sdk-crypto-wasm": ["@matrix-org/matrix-sdk-crypto-wasm@9.1.0", "", {}, "sha512-CtPoNcoRW6ehwxpRQAksG3tR+NJ7k4DV02nMFYTDwQtie1V4R8OTY77BjEIs97NOblhtS26jU8m1lWsOBEz0Og=="],

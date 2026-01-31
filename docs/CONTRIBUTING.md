@@ -8,8 +8,7 @@ Thank you for your interest in contributing! This document provides guidelines a
 
 - [Bun](https://bun.sh) runtime
 - Git
-- A Matrix account for testing (optional)
-- OpenCode installed
+- OpenCode installed and authenticated
 
 ### Development Setup
 
@@ -21,20 +20,8 @@ cd opencode-chat-bridge
 # Install dependencies
 bun install
 
-# Run in development mode
-bun run dev
-```
-
-### Running with OpenCode
-
-For integration testing:
-
-```bash
-# Terminal 1: Start OpenCode server
-opencode serve --port 4097
-
-# Terminal 2: Run the plugin in dev mode
-bun run dev
+# Test the CLI
+bun src/cli.ts "Hello, world!"
 ```
 
 ## Project Structure
@@ -42,85 +29,125 @@ bun run dev
 ```
 opencode-chat-bridge/
 ├── src/
-│   ├── index.ts              # Plugin entry point
-│   ├── bridge.ts             # Core bridge logic
-│   ├── session-manager.ts    # Room→Session mapping
-│   ├── protocols/
-│   │   ├── base.ts           # Protocol interface
-│   │   └── matrix/
-│   │       ├── client.ts     # Matrix implementation
-│   │       └── types.ts      # Matrix types
-│   └── utils/
-│       ├── config.ts         # Config utilities
-│       └── logger.ts         # Logging
-├── docs/                     # Documentation
-├── config.example.json       # Example configuration
-├── package.json
-└── tsconfig.json
+│   ├── acp-client.ts     # ACP protocol client (EventEmitter-based)
+│   ├── cli.ts            # Interactive CLI
+│   ├── skills.ts         # Skills loader
+│   └── index.ts          # Library exports
+├── skills/               # Custom skill definitions
+│   ├── plain.md
+│   ├── sarcastic.md
+│   └── gis-expert.md
+├── docs/                 # Documentation
+├── opencode.json         # Agent and permission configuration
+└── tests/                # Test scripts
 ```
 
-## Adding a New Protocol
+## Contributing Areas
 
-We welcome contributions for new chat protocols! Here's how:
+### 1. Chat Platform Connectors
 
-### 1. Create Protocol Directory
+We need connectors for various chat platforms:
+
+| Platform | Status | Priority |
+|----------|--------|----------|
+| Matrix | Planned | High |
+| Discord | Planned | Medium |
+| Slack | Planned | Medium |
+| IRC | Planned | Low |
+
+### 2. Skills
+
+Add new skills in `skills/*.md`:
+
+```markdown
+---
+description: Short description
+---
+
+# Skill Name
+
+Your system prompt here.
+```
+
+### 3. Documentation
+
+- Improve existing docs
+- Add examples
+- Fix typos
+
+## Adding a Chat Connector
+
+### 1. Create Connector File
 
 ```bash
-mkdir -p src/protocols/discord
-touch src/protocols/discord/{client.ts,types.ts}
+mkdir -p connectors
+touch connectors/matrix.ts
 ```
 
-### 2. Define Types
+### 2. Use ACPClient
 
 ```typescript
-// src/protocols/discord/types.ts
-import type { ProtocolConfig } from '../base'
+// connectors/matrix.ts
+import { ACPClient } from "../src"
 
-export interface DiscordConfig extends ProtocolConfig {
-  token: string
-  // ... Discord-specific options
+class MatrixConnector {
+  private client: ACPClient
+  
+  constructor() {
+    this.client = new ACPClient({ cwd: process.cwd() })
+  }
+  
+  async start() {
+    await this.client.connect()
+    await this.client.createSession()
+    
+    // Set up event handlers
+    this.client.on("chunk", (text) => {
+      // Send to chat platform
+    })
+    
+    this.client.on("tool", ({ name, status }) => {
+      // Show tool usage
+    })
+  }
+  
+  async handleMessage(text: string) {
+    await this.client.prompt(text)
+  }
 }
 ```
 
-### 3. Implement ChatProtocol
+### 3. Handle Streaming
+
+The ACPClient emits events for streaming responses:
 
 ```typescript
-// src/protocols/discord/client.ts
-import type { ChatProtocol, ChatMessage } from '../base'
-import type { DiscordConfig } from './types'
-
-export class DiscordProtocol implements ChatProtocol {
-  readonly name = 'discord'
-  // ... implement all methods
-}
+client.on("chunk", (text) => {
+  // Buffer and send to chat
+  buffer += text
+  if (buffer.length > 500 || buffer.endsWith(".")) {
+    sendToChat(buffer)
+    buffer = ""
+  }
+})
 ```
 
-### 4. Register in Plugin
+### 4. Add Documentation
 
-Update `src/index.ts` to initialize your protocol:
-
-```typescript
-if (config.discord?.enabled) {
-  bridge.addProtocol(new DiscordProtocol(config.discord))
-}
-```
-
-### 5. Add Documentation
-
-Create `docs/<PROTOCOL>_SETUP.md` with setup instructions.
-
-### 6. Add Example Config
-
-Update `config.example.json` with your protocol's options.
+Create `docs/<PLATFORM>_SETUP.md` with:
+- Prerequisites
+- Configuration
+- Quick start
+- Troubleshooting
 
 ## Code Style
 
 ### TypeScript
 
 - Use strict TypeScript
-- Prefer interfaces over types for object shapes
+- Prefer interfaces over types for objects
 - Use explicit return types for public functions
-- Document public APIs with JSDoc comments
+- Document public APIs with JSDoc
 
 ### Naming Conventions
 
@@ -131,50 +158,48 @@ Update `config.example.json` with your protocol's options.
 
 ### Error Handling
 
-- Use typed errors where possible
+- Use typed errors
 - Log errors with context
-- Gracefully handle recoverable errors
+- Handle recoverable errors gracefully
 - Fail fast for unrecoverable errors
 
 ## Testing
 
-### Unit Tests
-
-```bash
-bun test
-```
-
 ### Manual Testing
 
-1. Set up test Matrix account
-2. Configure `chat-bridge.json` with test credentials
-3. Run OpenCode with the plugin
-4. Send test messages
+```bash
+# Test CLI
+bun src/cli.ts "What time is it?"
+
+# Test security
+bun src/cli.ts "Read /etc/passwd"  # Should be blocked
+
+# Test skill
+bun src/cli.ts --skill=sarcastic "Hello"
+```
 
 ### Test Checklist
 
-- [ ] Message receiving works
-- [ ] Message sending works
-- [ ] Mode commands parse correctly
-- [ ] Long messages split properly
-- [ ] Typing indicators show/hide
-- [ ] Session persistence works
-- [ ] Error messages display correctly
+- [ ] CLI works in interactive mode
+- [ ] Single prompt mode works
+- [ ] Skills load and apply correctly
+- [ ] Security: blocked tools are denied
+- [ ] Streaming responses work
+- [ ] Tool notifications appear
 
 ## Pull Request Process
 
 ### Before Submitting
 
-1. **Run type checking:** `bun run typecheck`
-2. **Test your changes:** Manual and automated
-3. **Update documentation:** If adding features
-4. **Add to CHANGELOG:** Note your changes
+1. Test your changes manually
+2. Update documentation if needed
+3. Add to CHANGELOG if significant
 
 ### PR Requirements
 
 - Clear title describing the change
 - Description of what and why
-- Reference any related issues
+- Reference related issues
 - Include test evidence if applicable
 
 ### PR Template
@@ -186,17 +211,16 @@ Brief description of changes
 ## Type of Change
 - [ ] Bug fix
 - [ ] New feature
-- [ ] Breaking change
+- [ ] New connector
 - [ ] Documentation update
 
 ## Testing
 How was this tested?
 
 ## Checklist
-- [ ] Types pass (`bun run typecheck`)
-- [ ] Tests pass (`bun test`)
+- [ ] Manual testing passed
 - [ ] Documentation updated
-- [ ] CHANGELOG updated
+- [ ] Code follows style guide
 ```
 
 ## Reporting Issues
@@ -204,33 +228,40 @@ How was this tested?
 ### Bug Reports
 
 Include:
-- OpenCode version
-- Plugin version
-- Protocol being used
+- OpenCode version (`opencode --version`)
 - Steps to reproduce
 - Expected vs actual behavior
-- Relevant logs
+- Relevant output/logs
 
 ### Feature Requests
 
 Include:
 - Use case description
-- Proposed solution (if any)
+- Proposed solution
 - Alternatives considered
+
+## Security Considerations
+
+When contributing:
+
+1. **Never weaken permissions** - Don't add tools to the allow list without discussion
+2. **Test security** - Verify prompt injection is still blocked
+3. **Don't commit secrets** - Use environment variables
+4. **Review carefully** - Security-sensitive code gets extra scrutiny
 
 ## Community
 
 ### Getting Help
 
 - Open a GitHub issue
-- Join OpenCode Discord
 - Check existing documentation
+- Review similar connectors
 
 ### Code of Conduct
 
 - Be respectful and inclusive
 - Focus on constructive feedback
-- Help others learn and grow
+- Help others learn
 
 ## License
 

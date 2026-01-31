@@ -1,318 +1,332 @@
 # Architecture
 
-This document describes the architecture of opencode-chat-bridge and the lessons learned during development.
+This document describes the architecture of opencode-chat-bridge.
 
 ## Overview
 
-opencode-chat-bridge is a **standalone service** that bridges Matrix chat to OpenCode AI sessions. It runs as a separate process from OpenCode and communicates via HTTP API.
+opencode-chat-bridge uses the **ACP (Agent Client Protocol)** to communicate with OpenCode. This provides a clean, JSON-RPC based interface for creating sessions and sending prompts.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Matrix Homeserver                                │
-│                        (matrix.org, etc.)                                │
-└────────────────────────────────┬────────────────────────────────────────┘
-                                 │
-                                 │ Matrix Protocol (HTTP)
-                                 │
-┌────────────────────────────────▼────────────────────────────────────────┐
-│                        standalone.ts                                     │
-│                        (bun process)                                     │
-│                                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                    Matrix Client (matrix-js-sdk)                  │   │
-│  │  - Connects as bot user                                           │   │
-│  │  - Listens for messages with trigger patterns                     │   │
-│  │  - Sends responses back to rooms                                  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                 │                                        │
-│                                 │ Message Handler                        │
-│                                 │                                        │
-│  ┌──────────────────────────────▼───────────────────────────────────┐   │
-│  │                    Bridge Logic                                   │   │
-│  │  - Strip trigger patterns                                         │   │
-│  │  - Parse mode commands (!s, !d, etc.)                            │   │
-│  │  - Manage room → session mapping                                  │   │
-│  │  - Format and split long responses                                │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                 │                                        │
-│                                 │ OpenCode SDK                           │
-│                                 │                                        │
-└─────────────────────────────────┼────────────────────────────────────────┘
-                                  │
-                                  │ HTTP API (localhost:4096)
-                                  │
-┌─────────────────────────────────▼────────────────────────────────────────┐
-│                         OpenCode Server                                   │
-│                        (opencode serve)                                   │
-│                                                                           │
-│  ┌───────────────────────────────────────────────────────────────────┐   │
-│  │                    Session Management                              │   │
-│  │  - Create sessions                                                 │   │
-│  │  - Send prompts                                                    │   │
-│  │  - Manage conversation history                                     │   │
-│  └───────────────────────────────────────────────────────────────────┘   │
-│                                  │                                        │
-│  ┌───────────────────────────────▼───────────────────────────────────┐   │
-│  │                    LLM Providers                                   │   │
-│  │  - Anthropic (Claude)                                              │   │
-│  │  - OpenAI                                                          │   │
-│  │  - Local models                                                    │   │
-│  └───────────────────────────────────────────────────────────────────┘   │
-└───────────────────────────────────────────────────────────────────────────┘
+                                    ACP Protocol
+                                   (JSON-RPC/stdio)
+                                         |
++------------------+              +------v-------+              +----------------+
+|                  |   prompt     |              |   LLM API   |                |
+|   CLI / Chat     |------------->|   OpenCode   |------------>|  LLM Provider  |
+|   Connector      |<-------------|   (acp)      |<------------|  (Anthropic)   |
+|                  |   stream     |              |   response  |                |
++------------------+              +--------------+              +----------------+
+         |                               |
+         |                               |
+    User Input                    MCP Tool Calls
+                                  (time, web-search, etc.)
 ```
 
-## Data Flow
+## Components
 
-### Message Flow
+### 1. ACP Client (`src/acp-client.ts`)
 
-```
-1. User sends message in Matrix room
-   "@bot: !s what is QGIS?"
-
-2. Matrix client receives message event
-   - Check: is it directed at us? (trigger pattern match)
-   - Check: is it from someone else? (not our own message)
-
-3. Bridge processes message
-   - Strip trigger: "!s what is QGIS?"
-   - Parse mode: agent="serious", content="what is QGIS?"
-
-4. Session management
-   - Look up existing session for this room
-   - If none, create new session via OpenCode API
-
-5. Send to OpenCode
-   - POST /session/{id}/prompt
-   - Body: { parts: [{type: "text", text: "what is QGIS?"}], agent: "serious" }
-
-6. OpenCode processes
-   - Routes to configured LLM
-   - May use tools (web search, etc.)
-   - Returns response parts
-
-7. Bridge formats response
-   - Extract text from response parts
-   - Split if too long for Matrix (>4000 chars)
-
-8. Send to Matrix
-   - matrix.sendMessage(roomId, response)
-```
-
-### Session Lifecycle
-
-```
-Room first message:
-  └── Check session map (none found)
-      └── Call opencode.session.create({ title: "Matrix: room-name" })
-          └── Store roomId → sessionId mapping
-              └── Send prompt to new session
-
-Subsequent messages:
-  └── Check session map (found: sessionId)
-      └── Send prompt to existing session
-          └── Session maintains conversation context
-```
-
-## Why Standalone?
-
-### Original Plan: OpenCode Plugin
-
-We initially designed this as an OpenCode plugin that would:
-- Load inside the OpenCode process
-- Use `ctx.client` to interact with sessions
-- Run the Matrix client as a background task
+The core client that communicates with OpenCode via ACP:
 
 ```typescript
-// Original plugin approach (did not work)
-export const ChatBridgePlugin: Plugin = async (ctx: PluginInput): Promise<Hooks> => {
-  const bridge = new Bridge(ctx.client, config)
-  await bridge.start()
-  return { /* hooks */ }
-}
+const client = new ACPClient({ cwd: process.cwd() })
+await client.connect()      // Spawns `opencode acp` process
+await client.createSession() // Creates a new session
+await client.prompt("...")   // Sends prompt, streams response
 ```
 
-### What Went Wrong
+**Key features:**
+- EventEmitter-based for streaming responses
+- Automatic session management
+- Tool call notifications
 
-**IMPORTANT: Do NOT use the plugin line in opencode.json:**
-```json
-// BROKEN - causes error below
-"plugin": ["./src/index.ts"]
+**Events:**
+- `chunk` - Response text token
+- `tool` - Tool execution status
+- `agent-set` - Current agent/mode
+- `error` - Error messages
+- `close` - Process closed
+
+### 2. CLI (`src/cli.ts`)
+
+Interactive command-line interface:
+
+```bash
+bun src/cli.ts              # Interactive mode
+bun src/cli.ts "prompt"     # Single prompt
+bun src/cli.ts --skill=name # With a skill
 ```
 
-1. **Class constructor error**
-   ```
-   TypeError: Cannot call a class constructor without |new|
-       at Bridge (/path/to/src/bridge.ts:57:14)
-   ```
-   OpenCode's plugin loader cannot instantiate our Bridge class. This is an ESM/bundling incompatibility that has not been resolved.
+**Features:**
+- Interactive REPL mode
+- Skill switching with `/skill name`
+- Streams responses in real-time
 
-2. **Plugin design mismatch**
-   
-   OpenCode plugins are designed for:
-   - Exposing **tools** (like `generate_image`)
-   - Adding **hooks** to respond to OpenCode events
-   
-   Our use case needs:
-   - Running a **persistent background service** (Matrix client)
-   - **Creating sessions** from external triggers
-   
-3. **No direct session API in plugin context**
-   
-   The `ctx.client` provided to plugins is optimized for tool execution, not for managing sessions from external events.
+### 3. Skills System (`src/skills.ts`)
 
-### Why Standalone Works Better
+Loads custom behavior definitions from `skills/*.md`:
 
-1. **Separation of concerns** - Bridge is a separate process with its own lifecycle
-2. **Simpler debugging** - Can restart bridge without affecting OpenCode
-3. **Clear API boundary** - Uses documented HTTP API, not internal SDK
-4. **Easier deployment** - Two processes, clear responsibilities
+```markdown
+---
+description: Witty assistant
+---
 
-## Configuration Requirements
-
-### opencode.json is Mandatory
-
-The OpenCode server requires `opencode.json` in the working directory. Without it:
-
-```
-TypeError: undefined is not an object (evaluating 'agent.name')
-    at createUserMessage (src/session/prompt.ts:831:14)
+Be sarcastic and humorous in all responses.
 ```
 
-The bot will respond with "No response generated" for all prompts.
+Skills are sent as system instructions at the start of a session.
 
-### Minimum Required Config
+### 4. Security Configuration (`opencode.json`)
+
+Defines the secure `chat-bridge` agent with permission restrictions:
 
 ```json
 {
-  "$schema": "https://opencode.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-20250514",
+  "default_agent": "chat-bridge",
   "agent": {
-    "serious": {
-      "mode": "primary",
-      "description": "Helpful assistant"
+    "chat-bridge": {
+      "permission": {
+        "read": "deny",
+        "bash": "deny",
+        "time_*": "allow"
+      }
     }
   }
 }
 ```
 
-### Default vs Custom Personality
+## ACP Protocol Flow
 
-| Config | Bot Behavior |
-|--------|--------------|
-| No custom `prompt` | "I'm Claude Code, Anthropic's official CLI coding agent..." |
-| With custom `prompt` | Uses your specified personality (e.g., "document library assistant") |
+### Initialization
 
-Both configurations have access to MCP tools. The custom prompt only changes how the bot introduces itself and frames responses.
-
-## OpenCode SDK Usage
-
-The bridge uses `@opencode-ai/sdk` to communicate with the server:
-
-```typescript
-import { createOpencodeClient } from '@opencode-ai/sdk'
-
-const opencode = createOpencodeClient({ baseUrl: 'http://127.0.0.1:4096' })
-
-// List existing sessions
-const sessions = await opencode.session.list()
-
-// Create a new session
-const session = await opencode.session.create({
-  body: { title: 'Matrix: room-name' }
-})
-
-// Send a prompt
-const result = await opencode.session.prompt({
-  path: { id: sessionId },
-  body: {
-    parts: [{ type: 'text', text: 'Hello!' }],
-    agent: 'serious'  // optional
-  }
-})
-
-// Response format
-result.data.parts  // Array of { type: 'text', text: '...' }
+```
+Client                          OpenCode (acp)
+   |                                  |
+   |  {"method": "initialize"}        |
+   |--------------------------------->|
+   |  {"result": {agentInfo: ...}}    |
+   |<---------------------------------|
 ```
 
-## Key Components
+### Session Creation
 
-### standalone.ts
-
-The main bridge script containing:
-- Configuration constants
-- Matrix client initialization
-- Message filtering and parsing
-- Session management (in-memory map)
-- OpenCode API calls
-- Response formatting
-
-### opencode.json
-
-OpenCode server configuration:
-- Model selection
-- Permission settings
-- Agent definitions
-
-### chat-bridge.json (Optional)
-
-Extended Matrix configuration for the plugin approach. Not used by standalone, but kept for reference.
-
-## Plugin Code (src/)
-
-The `src/` directory contains the original plugin implementation:
-- `index.ts` - Plugin entry point
-- `bridge.ts` - Bridge class with full protocol abstraction
-- `session-manager.ts` - Persistent session mapping
-- `protocols/` - Protocol adapters (Matrix, future Discord/IRC)
-
-This code is **not used** by the standalone approach but is preserved for:
-- Future plugin attempts if OpenCode's loader improves
-- Reference for the protocol abstraction pattern
-- Potential extraction into a shared library
-
-## Future Improvements
-
-### Session Persistence
-
-Currently sessions are stored in memory. To survive restarts:
-```typescript
-// Save to file
-const sessions = new Map<string, string>()
-// On create: fs.writeFile('sessions.json', JSON.stringify([...sessions]))
-// On start: sessions = new Map(JSON.parse(fs.readFile('sessions.json')))
+```
+Client                          OpenCode (acp)
+   |                                  |
+   |  {"method": "session/new"}       |
+   |--------------------------------->|
+   |  {"result": {sessionId, modes}}  |
+   |<---------------------------------|
 ```
 
-### Streaming Responses
+The `modes` field includes `currentModeId` which reflects the `default_agent` setting.
 
-OpenCode supports SSE for streaming. Implementation:
-1. Use `opencode.session.promptAsync()` for non-blocking
-2. Subscribe to `opencode.global.event()` for updates
-3. Send partial responses to Matrix as they arrive
+### Prompting
 
-### Rate Limiting
+```
+Client                          OpenCode (acp)
+   |                                  |
+   |  {"method": "session/prompt"}    |
+   |--------------------------------->|
+   |                                  |
+   |  {"method": "session/update",    |
+   |   "params": {update: ...}}       |  (notification)
+   |<---------------------------------|
+   |  ... more updates ...            |
+   |                                  |
+   |  {"result": {stopReason}}        |
+   |<---------------------------------|
+```
 
-Add per-user rate limiting:
+### Session Updates
+
+| Update Type | Description |
+|-------------|-------------|
+| `agent_message_chunk` | Response text token |
+| `agent_thought_chunk` | Internal reasoning |
+| `tool_call` | Tool execution started |
+| `tool_call_update` | Tool result |
+
+## Permission Enforcement
+
+Permissions are enforced at the OpenCode level, not via prompts:
+
+```
+User Prompt: "Read /etc/passwd"
+                |
+                v
++---------------------------+
+|   LLM decides to call     |
+|   read tool               |
++---------------------------+
+                |
+                v
++---------------------------+
+|   OpenCode checks         |
+|   agent.permission.read   |
+|   = "deny"                |
++---------------------------+
+                |
+                v
++---------------------------+
+|   Tool call BLOCKED       |
+|   Error returned to LLM   |
++---------------------------+
+                |
+                v
++---------------------------+
+|   LLM explains it cannot  |
+|   read files              |
++---------------------------+
+```
+
+This is resistant to prompt injection because:
+1. The permission check happens BEFORE the tool executes
+2. The config is not accessible to the LLM
+3. Even if the LLM is tricked, OpenCode enforces the rules
+
+## Building Chat Connectors
+
+To build a chat platform connector (Matrix, Discord, etc.):
+
+### 1. Create a connector that uses ACPClient
+
 ```typescript
-const userLimits = new Map<string, { count: number, resetAt: number }>()
+import { ACPClient } from "./src"
 
-function checkRateLimit(userId: string): boolean {
-  const limit = userLimits.get(userId)
-  const now = Date.now()
-  if (!limit || now > limit.resetAt) {
-    userLimits.set(userId, { count: 1, resetAt: now + 60000 })
-    return true
+class MatrixConnector {
+  private client: ACPClient
+  
+  constructor() {
+    this.client = new ACPClient({ cwd: process.cwd() })
+    this.client.on("chunk", (text) => this.sendToRoom(text))
+    this.client.on("tool", ({ name }) => this.sendStatus(name))
   }
-  if (limit.count >= 10) return false
-  limit.count++
-  return true
+  
+  async start() {
+    await this.client.connect()
+    await this.client.createSession()
+  }
+  
+  async handleMessage(roomId: string, text: string) {
+    // ACPClient handles the session internally
+    await this.client.prompt(text)
+  }
 }
 ```
 
-### E2EE Support
+### 2. Handle streaming responses
 
-For encrypted Matrix rooms, would need:
-- `matrix-nio` style crypto store
-- Device verification handling
-- Key sharing
+The `chunk` event provides real-time response tokens:
 
-This is complex - consider using unencrypted rooms for simplicity.
+```typescript
+let buffer = ""
+client.on("chunk", (text) => {
+  buffer += text
+  // Send to chat when sentence complete or buffer full
+  if (buffer.endsWith(".") || buffer.length > 500) {
+    sendToChat(buffer)
+    buffer = ""
+  }
+})
+```
+
+### 3. Handle tool calls
+
+Show users what tools are being used:
+
+```typescript
+client.on("tool", ({ name, status }) => {
+  if (status === "pending") {
+    sendToChat(`[Searching with ${name}...]`)
+  }
+})
+```
+
+## Session Management
+
+Currently, ACPClient maintains a single session. For multi-room chat:
+
+### Option 1: One client per room
+
+```typescript
+const roomClients = new Map<string, ACPClient>()
+
+async function getClient(roomId: string) {
+  if (!roomClients.has(roomId)) {
+    const client = new ACPClient({ cwd: process.cwd() })
+    await client.connect()
+    await client.createSession()
+    roomClients.set(roomId, client)
+  }
+  return roomClients.get(roomId)
+}
+```
+
+### Option 2: Session forking (future)
+
+ACP supports session forking for branching conversations.
+
+## MCP Tool Integration
+
+MCP servers are configured globally in OpenCode. The `chat-bridge` agent can use:
+
+| Server | Tools |
+|--------|-------|
+| `time` | `time_get_current_time`, `time_convert_time` |
+| `web-search` | `web-search_full-web-search`, etc. |
+| `doclibrary` | `doclibrary_search_documents`, etc. |
+
+Dangerous servers like `chrome-devtools` are blocked by the permission config.
+
+## Future Improvements
+
+### 1. Session Persistence
+
+Save session IDs to survive restarts:
+
+```typescript
+// On create
+fs.writeFileSync("sessions.json", JSON.stringify({
+  [roomId]: sessionId
+}))
+
+// On start
+const sessions = JSON.parse(fs.readFileSync("sessions.json"))
+```
+
+### 2. Multi-session Support
+
+Extend ACPClient to manage multiple sessions:
+
+```typescript
+class MultiSessionClient extends ACPClient {
+  private sessions = new Map<string, string>()
+  
+  async createSession(id: string) {
+    const sessionId = await super.createSession()
+    this.sessions.set(id, sessionId)
+  }
+  
+  async prompt(id: string, text: string) {
+    const sessionId = this.sessions.get(id)
+    // Use specific session
+  }
+}
+```
+
+### 3. Rate Limiting
+
+Add per-user rate limiting for chat connectors:
+
+```typescript
+const userLimits = new Map<string, number>()
+
+function checkLimit(userId: string): boolean {
+  const now = Date.now()
+  const lastRequest = userLimits.get(userId) || 0
+  if (now - lastRequest < 5000) return false // 5 second cooldown
+  userLimits.set(userId, now)
+  return true
+}
+```
