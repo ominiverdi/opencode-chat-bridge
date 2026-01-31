@@ -13,33 +13,55 @@
  *   SLACK_APP_TOKEN - App-Level Token for Socket Mode (starts with xapp-)
  */
 
+import fs from "fs"
+import path from "path"
 import { App } from "@slack/bolt"
 import { ACPClient, type ActivityEvent } from "../src"
-import { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo, estimateTokens } from "../src/session-utils"
+import {
+  BaseConnector,
+  type BaseSession,
+  extractImagePaths,
+  removeImageMarkers,
+} from "../src"
 
-// Configuration from environment
+// =============================================================================
+// Configuration
+// =============================================================================
+
 const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
 const APP_TOKEN = process.env.SLACK_APP_TOKEN
 const TRIGGER = process.env.SLACK_TRIGGER || "!oc"
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
-
-// Rate limiting
 const RATE_LIMIT_SECONDS = 5
-const userLastMessage = new Map<string, number>()
 
-// Per-channel ACP sessions
-interface ChannelSession {
-  client: ACPClient
-  createdAt: Date
-  messageCount: number
-  lastActivity: Date
-  inputChars: number    // Characters from user
-  outputChars: number   // Characters from bot responses
+// =============================================================================
+// Session Type
+// =============================================================================
+
+interface ChannelSession extends BaseSession {
+  // Slack-specific fields can be added here if needed
 }
-const channelSessions = new Map<string, ChannelSession>()
 
-class SlackConnector {
+// =============================================================================
+// Slack Connector
+// =============================================================================
+
+class SlackConnector extends BaseConnector<ChannelSession> {
   private app: App | null = null
+
+  constructor() {
+    super({
+      connector: "slack",
+      trigger: TRIGGER,
+      botName: "OpenCode Slack Bot",
+      rateLimitSeconds: RATE_LIMIT_SECONDS,
+      sessionRetentionDays: SESSION_RETENTION_DAYS,
+    })
+  }
+
+  // ---------------------------------------------------------------------------
+  // Abstract method implementations
+  // ---------------------------------------------------------------------------
 
   async start(): Promise<void> {
     // Validate configuration
@@ -54,22 +76,8 @@ class SlackConnector {
       process.exit(1)
     }
 
-    console.log("Starting Slack connector...")
-    console.log(`  Trigger: ${TRIGGER}`)
-    
-    // Log session storage location
-    const storageInfo = getSessionStorageInfo()
-    console.log(`  Session storage: ${storageInfo.baseDir}`)
-    console.log(`    (${storageInfo.source})`)
-
-    // Cleanup old sessions
-    console.log("Cleaning up old sessions...")
-    const cleaned = cleanupOldSessions("slack", SESSION_RETENTION_DAYS)
-    if (cleaned > 0) {
-      console.log(`  Cleaned up ${cleaned} session(s) older than ${SESSION_RETENTION_DAYS} days`)
-    } else {
-      console.log(`  No old sessions to clean`)
-    }
+    this.logStartup()
+    await this.cleanupSessions()
 
     // Create Slack app with Socket Mode
     this.app = new App({
@@ -83,20 +91,17 @@ class SlackConnector {
       const userId = event.user || "unknown"
       const channel = event.channel || ""
       const text = event.text || ""
-      
+
       if (!channel) return
-      
-      console.log(`[MENTION] ${userId} in ${channel}: ${text}`)
-      
+
+      this.log(`[MENTION] ${userId} in ${channel}: ${text}`)
+
       // Extract query (remove the mention)
       const query = text.replace(/<@[A-Z0-9]+>/g, "").trim()
       if (!query) return
 
       // Rate limiting
-      if (!this.checkRateLimit(userId)) {
-        console.log(`Rate limited: ${userId}`)
-        return
-      }
+      if (!this.checkRateLimit(userId)) return
 
       await this.processQuery(channel, userId, query, say)
     })
@@ -107,12 +112,12 @@ class SlackConnector {
       if (!("text" in message) || !message.text) return
       if (!("user" in message) || !message.user) return
       if (!("channel" in message) || !message.channel) return
-      
+
       const userId = message.user
       const channel = message.channel
       const text = message.text
-      
-      console.log(`[MSG] ${userId} in ${channel}: ${text}`)
+
+      this.log(`[MSG] ${userId} in ${channel}: ${text}`)
 
       // Extract query after trigger
       const match = text.match(new RegExp(`^${TRIGGER}\\s+(.+)`, "i"))
@@ -121,124 +126,41 @@ class SlackConnector {
 
       // Handle commands
       if (query.startsWith("/")) {
-        await this.handleCommand(channel, userId, query, say)
+        await this.handleCommand(channel, query, async (text) => { await say(text) })
         return
       }
 
       // Rate limiting
-      if (!this.checkRateLimit(userId)) {
-        console.log(`Rate limited: ${userId}`)
-        return
-      }
+      if (!this.checkRateLimit(userId)) return
 
       await this.processQuery(channel, userId, query, say)
     })
 
     // Start the app
     await this.app.start()
-    console.log("Slack connector started! Listening for messages...")
+    this.log("Started! Listening for messages...")
   }
 
-  private checkRateLimit(userId: string): boolean {
-    const now = Date.now()
-    const last = userLastMessage.get(userId) || 0
-    if (now - last < RATE_LIMIT_SECONDS * 1000) {
-      return false
+  async stop(): Promise<void> {
+    this.log("Stopping...")
+    await this.disconnectAllSessions()
+
+    if (this.app) {
+      await this.app.stop()
     }
-    userLastMessage.set(userId, now)
-    return true
+
+    this.log("Stopped.")
   }
 
-  private async handleCommand(
-    channel: string,
-    user: string,
-    command: string,
-    say: (text: string) => Promise<unknown>
-  ): Promise<void> {
-    const cmd = command.toLowerCase().trim()
-
-    if (cmd === "/status") {
-      const session = channelSessions.get(channel)
-      if (session) {
-        const age = Math.round((Date.now() - session.createdAt.getTime()) / 1000 / 60)
-        const lastAct = Math.round((Date.now() - session.lastActivity.getTime()) / 1000 / 60)
-        const inputTokens = estimateTokens(session.inputChars)
-        const outputTokens = estimateTokens(session.outputChars)
-        const totalTokens = inputTokens + outputTokens
-        // Claude context is ~200k tokens, show percentage
-        const contextPercent = ((totalTokens / 200000) * 100).toFixed(2)
-        await say(
-          `Session status:\n` +
-          `- Messages: ${session.messageCount}\n` +
-          `- Age: ${age} min | Last active: ${lastAct} min ago\n` +
-          `- Tokens (est): ~${totalTokens.toLocaleString()} (${contextPercent}% of 200k)\n` +
-          `  Input: ~${inputTokens.toLocaleString()} | Output: ~${outputTokens.toLocaleString()}\n` +
-          `Note: OpenCode auto-compacts when context fills`
-        )
-      } else {
-        await say("No active session for this channel.")
-      }
-      return
-    }
-
-    if (cmd === "/clear" || cmd === "/reset") {
-      const session = channelSessions.get(channel)
-      if (session) {
-        try {
-          await session.client.disconnect()
-        } catch {}
-        channelSessions.delete(channel)
-        await say("Session cleared. Next message will start a fresh session.")
-      } else {
-        await say("No active session to clear.")
-      }
-      return
-    }
-
-    if (cmd === "/help") {
-      await say(
-        `Available commands:\n` +
-        `- /status - Show session info\n` +
-        `- /clear or /reset - Clear session history\n` +
-        `- /help - Show this help\n\n` +
-        `Or just type: ${TRIGGER} your question here`
-      )
-      return
-    }
-
-    await say(`Unknown command: ${command}. Try /help`)
+  async sendMessage(channel: string, text: string): Promise<void> {
+    // Note: For Slack, we use the `say` function from event context instead
+    // This method is here for interface compliance but won't be called directly
+    this.log(`sendMessage called for ${channel} - use say() instead`)
   }
 
-  private async getOrCreateSession(channel: string): Promise<ChannelSession | null> {
-    let session = channelSessions.get(channel)
-    if (!session) {
-      // Get dedicated session directory for this channel
-      const sessionDir = getSessionDir("slack", channel)
-      ensureSessionDir(sessionDir)
-      
-      const client = new ACPClient({ cwd: sessionDir })
-
-      try {
-        await client.connect()
-        await client.createSession()
-        session = {
-          client,
-          createdAt: new Date(),
-          messageCount: 0,
-          lastActivity: new Date(),
-          inputChars: 0,
-          outputChars: 0,
-        }
-        channelSessions.set(channel, session)
-        console.log(`Created new ACP session for channel: ${channel}`)
-        console.log(`  Session directory: ${sessionDir}`)
-      } catch (err) {
-        console.error(`Failed to create ACP session:`, err)
-        return null
-      }
-    }
-    return session
-  }
+  // ---------------------------------------------------------------------------
+  // Slack-specific methods
+  // ---------------------------------------------------------------------------
 
   private async processQuery(
     channel: string,
@@ -246,8 +168,11 @@ class SlackConnector {
     query: string,
     say: (text: string) => Promise<unknown>
   ): Promise<void> {
-    // Get or create session for this channel
-    const session = await this.getOrCreateSession(channel)
+    // Get or create session
+    const session = await this.getOrCreateSession(channel, (client) =>
+      this.createSession(client)
+    )
+
     if (!session) {
       await say("Sorry, I couldn't connect to the AI service.")
       return
@@ -262,13 +187,13 @@ class SlackConnector {
 
     // Track response chunks
     let responseBuffer = ""
+    let toolResultsBuffer = ""
     let lastActivityMessage = ""
 
     // Activity events - show what the AI is doing
     const activityHandler = async (activity: ActivityEvent) => {
       if (activity.type === "tool_start" && activity.message !== lastActivityMessage) {
         lastActivityMessage = activity.message
-        // Send activity as a message (Slack doesn't have "notice" type)
         await say(`> ${activity.message}`)
       }
     }
@@ -278,65 +203,73 @@ class SlackConnector {
       responseBuffer += text
     }
 
+    // Collect tool results (may contain images)
+    const updateHandler = (update: any) => {
+      if (update.type === "tool_result" && update.content) {
+        toolResultsBuffer += JSON.stringify(update.content)
+      }
+    }
+
     // Set up listeners
     client.on("activity", activityHandler)
     client.on("chunk", chunkHandler)
+    client.on("update", updateHandler)
 
     try {
-      // Send the prompt
       await client.prompt(query)
 
-      // Debug: log response buffer
-      console.log(`[DEBUG] Response buffer length: ${responseBuffer.length}`)
-
-      // Check response for image file paths using doclibrary marker
-      // Format: [DOCLIBRARY_IMAGE]/path/to/file.png[/DOCLIBRARY_IMAGE]
-      const fs = require("fs")
-      const imagePathRegex = /\[DOCLIBRARY_IMAGE\]([^\[]+)\[\/DOCLIBRARY_IMAGE\]/gi
-      const matches = responseBuffer.matchAll(imagePathRegex)
-      
-      for (const match of matches) {
-        const imagePath = match[1].trim()
-        console.log(`Found doclibrary image: ${imagePath}`)
-        if (imagePath && fs.existsSync(imagePath)) {
+      // Process images from tool results
+      const toolPaths = extractImagePaths(toolResultsBuffer)
+      for (const imagePath of toolPaths) {
+        if (fs.existsSync(imagePath)) {
+          this.log(`Uploading image from tool result: ${imagePath}`)
           await this.uploadImage(channel, imagePath)
         }
       }
 
-      // Remove the image markers from the response before sending
-      const cleanResponse = responseBuffer
-        .replace(/\[DOCLIBRARY_IMAGE\][^\[]+\[\/DOCLIBRARY_IMAGE\]/gi, "")
-        .trim()
+      // Process images from response (model might echo paths)
+      const responsePaths = extractImagePaths(responseBuffer)
+      for (const imagePath of responsePaths) {
+        // Skip if already uploaded from tool results
+        if (toolPaths.includes(imagePath)) continue
+        if (fs.existsSync(imagePath)) {
+          this.log(`Uploading image from response: ${imagePath}`)
+          await this.uploadImage(channel, imagePath)
+        }
+      }
 
-      // Send the final response
+      // Clean response and send
+      const cleanResponse = removeImageMarkers(responseBuffer)
       if (cleanResponse) {
         session.outputChars += cleanResponse.length
         await say(cleanResponse)
       }
     } catch (err) {
-      console.error("Error processing query:", err)
+      this.logError("Error processing query:", err)
       await say("Sorry, something went wrong processing your request.")
     } finally {
-      // Clean up listeners
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
+      client.off("update", updateHandler)
+    }
+  }
+
+  private createSession(client: ACPClient): ChannelSession {
+    return {
+      ...this.createBaseSession(client),
     }
   }
 
   private async uploadImage(channel: string, filePath: string): Promise<void> {
     try {
-      const fs = require("fs")
-      const path = require("path")
-
       if (!fs.existsSync(filePath)) {
-        console.error(`Image file not found: ${filePath}`)
+        this.logError(`Image file not found: ${filePath}`)
         return
       }
 
       const fileName = path.basename(filePath)
       const fileBuffer = fs.readFileSync(filePath)
 
-      // Upload file to Slack
       await this.app!.client.files.uploadV2({
         channel_id: channel,
         file: fileBuffer,
@@ -344,34 +277,17 @@ class SlackConnector {
         title: fileName,
       })
 
-      console.log(`Uploaded image to ${channel}: ${fileName}`)
+      this.log(`Uploaded image to ${channel}: ${fileName}`)
     } catch (err) {
-      console.error(`Failed to upload image to ${channel}:`, err)
+      this.logError(`Failed to upload image to ${channel}:`, err)
     }
-  }
-
-  async stop(): Promise<void> {
-    console.log("\nStopping Slack connector...")
-
-    // Disconnect all ACP sessions
-    for (const [channel, session] of channelSessions) {
-      try {
-        await session.client.disconnect()
-        console.log(`Disconnected ACP session for channel: ${channel}`)
-      } catch {}
-    }
-    channelSessions.clear()
-
-    // Stop Slack app
-    if (this.app) {
-      await this.app.stop()
-    }
-
-    console.log("Slack connector stopped.")
   }
 }
 
+// =============================================================================
 // Main
+// =============================================================================
+
 async function main() {
   const connector = new SlackConnector()
 

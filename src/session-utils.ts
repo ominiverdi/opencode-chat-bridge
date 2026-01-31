@@ -142,3 +142,46 @@ export function getSessionStorageInfo(): {
 export function estimateTokens(chars: number): number {
   return Math.max(0, Math.round(chars / 4))
 }
+
+// =============================================================================
+// Image Marker Utilities
+// =============================================================================
+
+/**
+ * Image marker format used by doclibrary MCP server
+ * Format: [DOCLIBRARY_IMAGE]/path/to/file.png[/DOCLIBRARY_IMAGE]
+ */
+const IMAGE_MARKER_REGEX = /\[DOCLIBRARY_IMAGE\]([^\[]+)\[\/DOCLIBRARY_IMAGE\]/gi
+
+/**
+ * Extract image file paths from text containing doclibrary markers
+ * 
+ * @param text - Text that may contain image markers
+ * @returns Array of file paths extracted from markers
+ */
+export function extractImagePaths(text: string): string[] {
+  const paths: string[] = []
+  let match: RegExpExecArray | null
+  
+  // Reset lastIndex in case regex was used before
+  IMAGE_MARKER_REGEX.lastIndex = 0
+  
+  while ((match = IMAGE_MARKER_REGEX.exec(text)) !== null) {
+    const imagePath = match[1].trim()
+    if (imagePath) {
+      paths.push(imagePath)
+    }
+  }
+  
+  return paths
+}
+
+/**
+ * Remove all image markers from text
+ * 
+ * @param text - Text containing image markers
+ * @returns Text with all [DOCLIBRARY_IMAGE]...[/DOCLIBRARY_IMAGE] markers removed
+ */
+export function removeImageMarkers(text: string): string {
+  return text.replace(/\[DOCLIBRARY_IMAGE\][^\[]+\[\/DOCLIBRARY_IMAGE\]/gi, "").trim()
+}
