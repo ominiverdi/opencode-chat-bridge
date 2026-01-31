@@ -46,13 +46,14 @@ opencode-chat-bridge/
 
 ### 1. Chat Platform Connectors
 
-We need connectors for various chat platforms:
+We have connectors for several chat platforms, with more planned:
 
 | Platform | Status | Priority |
 |----------|--------|----------|
-| Matrix | Planned | High |
+| Matrix | Done | - |
+| Slack | Done | - |
+| WhatsApp | Done | - |
 | Discord | Planned | Medium |
-| Slack | Planned | Medium |
 | IRC | Planned | Low |
 
 ### 2. Skills

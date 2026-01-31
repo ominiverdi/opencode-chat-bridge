@@ -1,11 +1,18 @@
 # OpenCode Chat Bridge
 
-Bridge [OpenCode](https://opencode.ai) to chat platforms like Matrix and Slack, with secure permission-based tool access.
+Bridge [OpenCode](https://opencode.ai) to chat platforms like Matrix, Slack, and WhatsApp, with secure permission-based tool access.
+
+<p align="center">
+  <img src="images/matrix.png" width="280" alt="Matrix" />
+  <img src="images/slack.png" width="280" alt="Slack" />
+  <img src="images/whatsapp.png" width="280" alt="WhatsApp" />
+</p>
 
 ## Features
 
 - **Matrix connector** - Full support with image uploads from document library
 - **Slack connector** - Socket Mode for real-time messaging
+- **WhatsApp connector** - WebSocket-based using Baileys (no browser needed)
 - **CLI** - Interactive command-line interface
 - **Secure by design** - Permission-based tool restrictions (not prompt-based)
 - **Custom skills** - Markdown-based personality/behavior definitions
@@ -29,9 +36,10 @@ Copy the example environment file and add your credentials:
 cp .env.example .env
 ```
 
-Edit `.env` with your Matrix and/or Slack tokens. See:
+Edit `.env` with your credentials. See setup guides:
 - [Matrix Setup Guide](docs/MATRIX_SETUP.md)
 - [Slack Setup Guide](docs/SLACK_SETUP.md)
+- [WhatsApp Setup Guide](docs/WHATSAPP_SETUP.md)
 
 ### 3. Run
 
@@ -42,13 +50,16 @@ bun connectors/matrix.ts
 # Slack connector
 bun connectors/slack.ts
 
+# WhatsApp connector (scan QR code on first run)
+bun connectors/whatsapp.ts
+
 # CLI (for testing)
 bun src/cli.ts
 ```
 
 ## Chat Commands
 
-In Matrix or Slack, use the trigger prefix (default: `!oc`):
+In Matrix, Slack, or WhatsApp, use the trigger prefix (default: `!oc`):
 
 ```
 !oc what time is it?
@@ -98,10 +109,12 @@ opencode-chat-bridge/
   connectors/
     matrix.ts         # Matrix connector
     slack.ts          # Slack connector
+    whatsapp.ts       # WhatsApp connector
   src/
     acp-client.ts     # ACP protocol client
     cli.ts            # Interactive CLI
     skills.ts         # Skills loader
+    session-utils.ts  # Session directory management
     index.ts          # Library exports
   skills/
     plain.md          # Plain text responses
@@ -109,8 +122,10 @@ opencode-chat-bridge/
   docs/
     MATRIX_SETUP.md   # Matrix configuration guide
     SLACK_SETUP.md    # Slack configuration guide
+    WHATSAPP_SETUP.md # WhatsApp configuration guide
     ARCHITECTURE.md   # System design
     SECURITY.md       # Security model details
+  images/             # Screenshots of each connector
   opencode.json       # Agent permissions
   .env.example        # Environment template
 ```
@@ -153,11 +168,14 @@ await client.disconnect()
 - [OpenCode](https://opencode.ai) installed and authenticated
 - Matrix account (for Matrix connector)
 - Slack workspace with app configured (for Slack connector)
+- WhatsApp account (for WhatsApp connector - scan QR to link)
 
 ## Documentation
 
 - [Matrix Setup](docs/MATRIX_SETUP.md) - Create Matrix bot and configure
 - [Slack Setup](docs/SLACK_SETUP.md) - Create Slack app with Socket Mode
+- [WhatsApp Setup](docs/WHATSAPP_SETUP.md) - Link WhatsApp via QR code
+- [Configuration](docs/CONFIGURATION.md) - Full configuration reference
 - [Architecture](docs/ARCHITECTURE.md) - System design and ACP protocol
 - [Security](docs/SECURITY.md) - Permission model and attack prevention
 - [Contributing](docs/CONTRIBUTING.md) - How to contribute

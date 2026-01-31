@@ -187,7 +187,7 @@ This is resistant to prompt injection because:
 
 ## Building Chat Connectors
 
-To build a chat platform connector (Matrix, Discord, etc.):
+To build a chat platform connector (Matrix, Slack, WhatsApp, Discord, etc.):
 
 ### 1. Create a connector that uses ACPClient
 
