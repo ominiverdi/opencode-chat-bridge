@@ -28,7 +28,7 @@ import * as fs from "fs"
 import * as path from "path"
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
-import { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo } from "../src/session-utils"
+import { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo, estimateTokens } from "../src/session-utils"
 
 // Simple logger for Baileys
 const logger = {
@@ -60,6 +60,8 @@ interface ChatSession {
   createdAt: Date
   messageCount: number
   lastActivity: Date
+  inputChars: number    // Characters from user
+  outputChars: number   // Characters from bot responses
 }
 const chatSessions = new Map<string, ChatSession>()
 
@@ -234,13 +236,18 @@ class WhatsAppConnector {
       if (session) {
         const age = Math.round((Date.now() - session.createdAt.getTime()) / 1000 / 60)
         const lastAct = Math.round((Date.now() - session.lastActivity.getTime()) / 1000 / 60)
-        const sessionDir = getSessionDir("whatsapp", chatId)
+        const inputTokens = estimateTokens(session.inputChars)
+        const outputTokens = estimateTokens(session.outputChars)
+        const totalTokens = inputTokens + outputTokens
+        // Claude context is ~200k tokens, show percentage
+        const contextPercent = ((totalTokens / 200000) * 100).toFixed(2)
         await this.sendMessage(chatId,
           `Session status:\n` +
           `- Messages: ${session.messageCount}\n` +
-          `- Age: ${age} minutes\n` +
-          `- Last activity: ${lastAct} minutes ago\n` +
-          `- Directory: ${sessionDir}`
+          `- Age: ${age} min | Last active: ${lastAct} min ago\n` +
+          `- Tokens (est): ~${totalTokens.toLocaleString()} (${contextPercent}% of 200k)\n` +
+          `  Input: ~${inputTokens.toLocaleString()} | Output: ~${outputTokens.toLocaleString()}\n` +
+          `Note: OpenCode auto-compacts when context fills`
         )
       } else {
         await this.sendMessage(chatId, "No active session for this chat.")
@@ -294,6 +301,8 @@ class WhatsAppConnector {
           createdAt: new Date(),
           messageCount: 0,
           lastActivity: new Date(),
+          inputChars: 0,
+          outputChars: 0,
         }
         chatSessions.set(chatId, session)
         console.log(`Created new ACP session for chat: ${chatId}`)
@@ -317,6 +326,7 @@ class WhatsAppConnector {
     // Update session stats
     session.messageCount++
     session.lastActivity = new Date()
+    session.inputChars += query.length
     
     const client = session.client
     
@@ -387,6 +397,7 @@ class WhatsAppConnector {
       
       // Send the response
       if (responseBuffer.trim()) {
+        session.outputChars += responseBuffer.trim().length
         await this.sendMessage(chatId, responseBuffer.trim())
       }
     } catch (err) {

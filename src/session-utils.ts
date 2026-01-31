@@ -131,3 +131,14 @@ export function getSessionStorageInfo(): {
     source: envDir ? "SESSION_BASE_DIR env var" : "default (~/.cache/opencode-chat-bridge/sessions)"
   }
 }
+
+/**
+ * Estimate token count from character count.
+ * Matches OpenCode's internal estimation: src/util/token.ts
+ * 
+ * @param chars - Number of characters
+ * @returns Estimated token count (chars / 4, rounded)
+ */
+export function estimateTokens(chars: number): number {
+  return Math.max(0, Math.round(chars / 4))
+}

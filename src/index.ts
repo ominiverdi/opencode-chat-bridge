@@ -10,4 +10,4 @@
 export { ACPClient, type ACPClientOptions, type MCPServer, type SessionUpdate, type ActivityEvent, type ImageContent } from "./acp-client"
 export { loadSkills, getSkill, listSkills, type Skill } from "./skills"
 export { getConfig, loadConfig, clearConfigCache, type ChatBridgeConfig, type MatrixConfig, type WhatsAppConfig } from "./config"
-export { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo, getSessionBaseDir, type SessionConfig } from "./session-utils"
+export { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo, getSessionBaseDir, estimateTokens, type SessionConfig } from "./session-utils"

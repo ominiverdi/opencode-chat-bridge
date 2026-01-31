@@ -15,7 +15,7 @@
 
 import { App } from "@slack/bolt"
 import { ACPClient, type ActivityEvent } from "../src"
-import { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo } from "../src/session-utils"
+import { getSessionDir, ensureSessionDir, cleanupOldSessions, getSessionStorageInfo, estimateTokens } from "../src/session-utils"
 
 // Configuration from environment
 const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
@@ -33,6 +33,8 @@ interface ChannelSession {
   createdAt: Date
   messageCount: number
   lastActivity: Date
+  inputChars: number    // Characters from user
+  outputChars: number   // Characters from bot responses
 }
 const channelSessions = new Map<string, ChannelSession>()
 
@@ -160,13 +162,18 @@ class SlackConnector {
       if (session) {
         const age = Math.round((Date.now() - session.createdAt.getTime()) / 1000 / 60)
         const lastAct = Math.round((Date.now() - session.lastActivity.getTime()) / 1000 / 60)
-        const sessionDir = getSessionDir("slack", channel)
+        const inputTokens = estimateTokens(session.inputChars)
+        const outputTokens = estimateTokens(session.outputChars)
+        const totalTokens = inputTokens + outputTokens
+        // Claude context is ~200k tokens, show percentage
+        const contextPercent = ((totalTokens / 200000) * 100).toFixed(2)
         await say(
           `Session status:\n` +
           `- Messages: ${session.messageCount}\n` +
-          `- Age: ${age} minutes\n` +
-          `- Last activity: ${lastAct} minutes ago\n` +
-          `- Directory: ${sessionDir}`
+          `- Age: ${age} min | Last active: ${lastAct} min ago\n` +
+          `- Tokens (est): ~${totalTokens.toLocaleString()} (${contextPercent}% of 200k)\n` +
+          `  Input: ~${inputTokens.toLocaleString()} | Output: ~${outputTokens.toLocaleString()}\n` +
+          `Note: OpenCode auto-compacts when context fills`
         )
       } else {
         await say("No active session for this channel.")
@@ -219,6 +226,8 @@ class SlackConnector {
           createdAt: new Date(),
           messageCount: 0,
           lastActivity: new Date(),
+          inputChars: 0,
+          outputChars: 0,
         }
         channelSessions.set(channel, session)
         console.log(`Created new ACP session for channel: ${channel}`)
@@ -247,6 +256,7 @@ class SlackConnector {
     // Update session stats
     session.messageCount++
     session.lastActivity = new Date()
+    session.inputChars += query.length
 
     const client = session.client
 
@@ -300,6 +310,7 @@ class SlackConnector {
 
       // Send the final response
       if (cleanResponse) {
+        session.outputChars += cleanResponse.length
         await say(cleanResponse)
       }
     } catch (err) {
