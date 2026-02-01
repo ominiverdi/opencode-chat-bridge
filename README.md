@@ -112,6 +112,18 @@ MCP servers provide additional tools. Add them in the `mcp` section, then allow 
 
 Tool names follow the pattern `<server>_<tool>`. The `*` wildcard matches all tools from a server.
 
+## AGENTS.md
+
+OpenCode reads `AGENTS.md` files for instructions. The model learns about its capabilities from these files, not just from tool definitions.
+
+**Important:** Your global `~/.config/opencode/AGENTS.md` affects all sessions. If it lists tools like `chrome-devtools`, the model will mention them even if disabled in `opencode.json`.
+
+This project includes a minimal `AGENTS.md` that:
+- Tells the model to identify as "an assistant" (not "Claude Code")
+- Lets the model discover its tools dynamically
+
+The file is copied to session directories to override any global config. If the model mentions tools it shouldn't have, check your global `AGENTS.md`.
+
 ## Security
 
 Permissions are enforced by OpenCode at the execution level, not via prompts. Even if a malicious prompt tricks the model, OpenCode blocks the action:
