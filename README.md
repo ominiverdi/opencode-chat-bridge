@@ -55,9 +55,9 @@ Use the trigger prefix (default: `!oc`) or mention the bot:
 
 ## Permissions
 
-OpenCode uses tools (functions) to perform actions. The `opencode.json` file controls which tools the bot can use. A local file in the working directory overrides your global config (`~/.config/opencode/opencode.json`).
+OpenCode uses tools (functions) to perform actions. The `opencode.json` file controls which tools are allowed. A local file overrides your global config (`~/.config/opencode/opencode.json`).
 
-**Built-in tools** are part of OpenCode:
+**Built-in tools:**
 
 | Tool | Purpose |
 |------|---------|
@@ -66,9 +66,7 @@ OpenCode uses tools (functions) to perform actions. The `opencode.json` file con
 | `bash` | Command execution |
 | `task` | Spawn sub-agents |
 
-**MCP tools** come from external servers you configure (e.g., `time`, `weather`, `web-search`).
-
-Example configuration:
+For a public bot, deny these:
 
 ```json
 {
@@ -82,18 +80,37 @@ Example configuration:
         "bash": "deny",
         "glob": "deny",
         "grep": "deny",
-        "task": "deny",
-
-        "time_*": "allow",
-        "weather_*": "allow",
-        "web-search_*": "allow"
+        "task": "deny"
       }
     }
   }
 }
 ```
 
-The `*` wildcard matches all tools from an MCP server.
+## MCP Servers
+
+MCP servers provide additional tools. Add them in the `mcp` section, then allow their tools in permissions:
+
+```json
+{
+  "mcp": {
+    "weather": {
+      "command": ["npx", "-y", "open-meteo-mcp-lite"],
+      "enabled": true
+    }
+  },
+
+  "agent": {
+    "chat-bridge": {
+      "permission": {
+        "weather_*": "allow"
+      }
+    }
+  }
+}
+```
+
+Tool names follow the pattern `<server>_<tool>`. The `*` wildcard matches all tools from a server.
 
 ## Security
 
