@@ -136,9 +136,7 @@ opencode-chat-bridge/
   src/
     acp-client.ts       # ACP protocol client
     cli.ts              # Interactive CLI
-    skills.ts           # Skills loader
     session-utils.ts    # Session management
-  skills/               # Custom bot personalities
   docs/                 # Setup guides
   opencode.json         # Permission configuration
 ```

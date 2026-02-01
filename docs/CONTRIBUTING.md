@@ -31,12 +31,11 @@ opencode-chat-bridge/
 ├── src/
 │   ├── acp-client.ts     # ACP protocol client (EventEmitter-based)
 │   ├── cli.ts            # Interactive CLI
-│   ├── skills.ts         # Skills loader
 │   └── index.ts          # Library exports
-├── skills/               # Custom skill definitions
-│   ├── plain.md
-│   ├── sarcastic.md
-│   └── gis-expert.md
+├── connectors/           # Chat platform connectors
+│   ├── matrix.ts
+│   ├── slack.ts
+│   └── whatsapp.ts
 ├── docs/                 # Documentation
 ├── opencode.json         # Agent and permission configuration
 └── tests/                # Test scripts
@@ -56,21 +55,7 @@ We have connectors for several chat platforms, with more planned:
 | IRC | Planned | Low |
 | Telegram | Planned | Low |
 
-### 2. Skills
-
-Add new skills in `skills/*.md`:
-
-```markdown
----
-description: Short description
----
-
-# Skill Name
-
-Your system prompt here.
-```
-
-### 3. Documentation
+### 2. Documentation
 
 - Improve existing docs
 - Add examples
@@ -174,16 +159,12 @@ bun src/cli.ts "What time is it?"
 
 # Test security
 bun src/cli.ts "Read /etc/passwd"  # Should be blocked
-
-# Test skill
-bun src/cli.ts --skill=sarcastic "Hello"
 ```
 
 ### Test Checklist
 
 - [ ] CLI works in interactive mode
 - [ ] Single prompt mode works
-- [ ] Skills load and apply correctly
 - [ ] Security: blocked tools are denied
 - [ ] Streaming responses work
 - [ ] Tool notifications appear

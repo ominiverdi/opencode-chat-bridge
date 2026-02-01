@@ -54,29 +54,13 @@ Interactive command-line interface:
 ```bash
 bun src/cli.ts              # Interactive mode
 bun src/cli.ts "prompt"     # Single prompt
-bun src/cli.ts --skill=name # With a skill
 ```
 
 **Features:**
 - Interactive REPL mode
-- Skill switching with `/skill name`
 - Streams responses in real-time
 
-### 3. Skills System (`src/skills.ts`)
-
-Loads custom behavior definitions from `skills/*.md`:
-
-```markdown
----
-description: Witty assistant
----
-
-Be sarcastic and humorous in all responses.
-```
-
-Skills are sent as system instructions at the start of a session.
-
-### 4. Security Configuration (`opencode.json`)
+### 3. Security Configuration (`opencode.json`)
 
 Defines the secure `chat-bridge` agent with permission restrictions:
 

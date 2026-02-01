@@ -12,9 +12,6 @@ bun src/cli.ts "What time is it?"
 
 # Test security (should be blocked)
 bun src/cli.ts "Read /etc/passwd"
-
-# Check available skills
-bun src/cli.ts --list-skills
 ```
 
 ### Check OpenCode
@@ -73,23 +70,6 @@ This means the security is working. The model tried to call a blocked tool.
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}' | timeout 5 opencode acp
 
 # Should return agentInfo
-```
-
-### Skills not loading
-
-**Cause:** Skill file format incorrect.
-
-**Check:**
-1. File is in `skills/` directory
-2. Extension is `.md`
-3. Has valid YAML frontmatter:
-
-```markdown
----
-description: My skill description
----
-
-Skill prompt here.
 ```
 
 ## ACP Protocol Debugging
@@ -243,33 +223,6 @@ bun src/cli.ts "Read the README.md file"
 ```
 
 ## Skill Debugging
-
-### List Available Skills
-
-```bash
-bun src/cli.ts --list-skills
-```
-
-### Test a Skill
-
-```bash
-bun src/cli.ts --skill=sarcastic "Hello"
-```
-
-### Check Skill Loading
-
-Add debug output to `src/skills.ts`:
-
-```typescript
-export async function loadSkills(): Promise<Skill[]> {
-  const skills: Skill[] = []
-  const skillsDir = path.join(process.cwd(), "skills")
-  
-  console.log("Loading skills from:", skillsDir)
-  
-  // ... rest of function
-}
-```
 
 ## Quick Fixes
 

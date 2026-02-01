@@ -10,13 +10,10 @@
  * Usage: 
  *   bun src/cli.ts                    # Interactive mode
  *   bun src/cli.ts "Your prompt"      # Single prompt
- *   bun src/cli.ts --skill=name       # Use a skill
- *   bun src/cli.ts --list-skills      # List available skills
  *   bun src/cli.ts --no-images        # Disable image display
  */
 
 import { ACPClient } from "./acp-client"
-import { loadSkills, getSkill, listSkills } from "./skills"
 import * as readline from "readline"
 import { spawnSync } from "child_process"
 import { existsSync } from "fs"
@@ -62,48 +59,16 @@ const DEFAULT_MCP_SERVERS: any[] = []
 async function main() {
   const args = process.argv.slice(2)
   
-  // Handle --list-skills
-  if (args.includes("--list-skills")) {
-    const skills = await listSkills()
-    console.log("\nAvailable Skills:")
-    console.log("=".repeat(40))
-    if (skills.length === 0) {
-      console.log("  No skills found in skills/ directory")
-    } else {
-      for (const skill of skills) {
-        console.log(`  ${skill.name}: ${skill.description}`)
-      }
-    }
-    console.log()
-    return
-  }
-  
   // Parse options
-  let skillName: string | null = null
-  let systemPrompt: string | null = null
   let showImages = true
   const filteredArgs: string[] = []
   
   for (const arg of args) {
-    if (arg.startsWith("--skill=")) {
-      skillName = arg.slice(8)
-    } else if (arg === "--no-images") {
+    if (arg === "--no-images") {
       showImages = false
     } else if (!arg.startsWith("--")) {
       filteredArgs.push(arg)
     }
-  }
-  
-  // Load skill if specified
-  if (skillName) {
-    const skill = await getSkill(skillName)
-    if (!skill) {
-      console.error(`Skill not found: ${skillName}`)
-      console.error("Use --list-skills to see available skills")
-      process.exit(1)
-    }
-    systemPrompt = skill.prompt
-    console.log(`Using skill: ${skillName}`)
   }
   
   // Create client
@@ -149,14 +114,6 @@ async function main() {
     await client.connect()
     await client.createSession()
     
-    // If system prompt from skill, send it (silently)
-    if (systemPrompt) {
-      client.removeAllListeners("chunk") // temporarily silence
-      await client.prompt(`SYSTEM INSTRUCTION: ${systemPrompt}\n\nAcknowledge briefly.`)
-      client.on("chunk", (text) => process.stdout.write(text)) // restore
-      console.log()
-    }
-    
     // Helper to find actual file (handles model hallucinating slightly wrong paths)
     const findImageFile = (mentionedPath: string): string | null => {
       // Try exact path first
@@ -184,10 +141,6 @@ async function main() {
       if (!showImages) return
       
       // Find image file paths in the response
-      // Match patterns like:
-      // - Image file: /path/to/image.png
-      // - `/tmp/doclibrary_cache/something.png`
-      // - /tmp/doclibrary_cache/something.png
       const patterns = [
         /Image file: ([^\n]+\.png)/gi,
         /`(\/tmp\/doclibrary_cache\/[^`]+\.png)`/gi,
@@ -243,33 +196,6 @@ async function main() {
         }
         
         if (trimmed === "") {
-          promptUser()
-          return
-        }
-        
-        // Handle skill switching
-        if (trimmed.startsWith("/skill ")) {
-          const newSkill = trimmed.slice(7).trim()
-          const skill = await getSkill(newSkill)
-          if (skill) {
-            console.log(`Switching to skill: ${newSkill}`)
-            await client.prompt(`SYSTEM INSTRUCTION: ${skill.prompt}\n\nAcknowledge briefly.`)
-            console.log("\n")
-          } else {
-            console.log(`Skill not found: ${newSkill}`)
-          }
-          promptUser()
-          return
-        }
-        
-        // Handle /skills command
-        if (trimmed === "/skills") {
-          const skills = await listSkills()
-          console.log("\nAvailable skills:")
-          for (const s of skills) {
-            console.log(`  /skill ${s.name} - ${s.description}`)
-          }
-          console.log()
           promptUser()
           return
         }

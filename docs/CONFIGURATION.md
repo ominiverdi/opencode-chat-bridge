@@ -261,49 +261,14 @@ bun src/cli.ts
 
 # Single prompt
 bun src/cli.ts "What time is it?"
-
-# With a skill
-bun src/cli.ts --skill=sarcastic "Tell me a joke"
-
-# List available skills
-bun src/cli.ts --list-skills
 ```
 
 ### Interactive Commands
 
 | Command | Description |
 |---------|-------------|
-| `/skills` | List available skills |
-| `/skill <name>` | Switch to a skill |
 | `exit` | Exit the CLI |
 | `quit` | Exit the CLI |
-
-## Skills Configuration
-
-Create skills in `skills/*.md`:
-
-```markdown
----
-description: Witty assistant with humor
----
-
-# Sarcastic Mode
-
-You are a witty, sarcastic assistant. Add humor to your responses while still being helpful.
-
-Rules:
-- Keep responses concise
-- Use clever wordplay
-- Be helpful despite the snark
-```
-
-### Skill Metadata
-
-| Field | Description |
-|-------|-------------|
-| `description` | Shown in `--list-skills` output |
-
-The content after the frontmatter becomes the system prompt.
 
 ## Agent Configuration
 
@@ -591,12 +556,6 @@ Check permission configuration. Tool calls are blocked if:
 1. Check OpenCode is installed: `opencode --version`
 2. Check `opencode.json` exists in working directory
 3. Check for errors in output
-
-### "Skill not found"
-
-1. Check skill file exists in `skills/` directory
-2. Check file extension is `.md`
-3. Check frontmatter is valid YAML
 
 ### "Wrong model being used" / "Big Pickle"
 
