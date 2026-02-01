@@ -66,34 +66,43 @@ export function ensureSessionDir(sessionDir: string): void {
 }
 
 /**
- * Copy opencode.json to session directory to apply security permissions.
+ * Copy a config file to session directory if source is newer or target doesn't exist.
+ */
+function copyIfNewer(sourceDir: string, sessionDir: string, fileName: string): void {
+  const sourcePath = path.join(sourceDir, fileName)
+  const targetPath = path.join(sessionDir, fileName)
+  
+  if (fs.existsSync(sourcePath)) {
+    try {
+      const sourceStats = fs.statSync(sourcePath)
+      const targetExists = fs.existsSync(targetPath)
+      
+      if (!targetExists || sourceStats.mtime > fs.statSync(targetPath).mtime) {
+        fs.copyFileSync(sourcePath, targetPath)
+        console.log(`  Copied ${fileName} to session directory`)
+      }
+    } catch (err) {
+      console.error(`Failed to copy ${fileName}:`, err)
+    }
+  }
+}
+
+/**
+ * Copy config files to session directory.
  * 
- * OpenCode looks for its config in the working directory (cwd).
- * Since sessions run from ~/.cache/..., we need to copy the config there.
+ * OpenCode looks for config in the working directory (cwd).
+ * Since sessions run from ~/.cache/..., we copy these files there:
+ * - opencode.json: Agent config with tool permissions
+ * - AGENTS.md: Instructions that override global AGENTS.md
  * 
  * @param sessionDir - Target session directory
  * @param projectDir - Source project directory (default: process.cwd())
  */
 export function copyOpenCodeConfig(sessionDir: string, projectDir?: string): void {
   const sourceDir = projectDir || process.cwd()
-  const sourcePath = path.join(sourceDir, "opencode.json")
-  const targetPath = path.join(sessionDir, "opencode.json")
   
-  // Only copy if source exists and target doesn't (or source is newer)
-  if (fs.existsSync(sourcePath)) {
-    try {
-      const sourceStats = fs.statSync(sourcePath)
-      const targetExists = fs.existsSync(targetPath)
-      
-      // Copy if target doesn't exist or source is newer
-      if (!targetExists || sourceStats.mtime > fs.statSync(targetPath).mtime) {
-        fs.copyFileSync(sourcePath, targetPath)
-        console.log(`  Copied opencode.json to session directory`)
-      }
-    } catch (err) {
-      console.error(`Failed to copy opencode.json:`, err)
-    }
-  }
+  copyIfNewer(sourceDir, sessionDir, "opencode.json")
+  copyIfNewer(sourceDir, sessionDir, "AGENTS.md")
 }
 
 /**

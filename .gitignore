@@ -31,9 +31,6 @@ Thumbs.db
 logs/
 *.log
 
-# AI assistant instructions (personal)
-AGENTS.md
-
 # Matrix crypto store (contains sensitive keys)
 matrix-store/
 nio_store/
