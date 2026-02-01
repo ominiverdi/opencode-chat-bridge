@@ -2,14 +2,25 @@
 
 Bridge [OpenCode](https://opencode.ai) to chat platforms like Matrix, Slack, and WhatsApp, with secure permission-based tool access.
 
-<p align="center">
-  <img src="images/matrix.png" width="280" alt="Matrix connector screenshot" />
-  <img src="images/slack.png" width="280" alt="Slack connector screenshot" />
-  <img src="images/whatsapp.png" width="280" alt="WhatsApp connector screenshot" />
-</p>
-<p align="center">
-  <em>Matrix, Slack, and WhatsApp connectors in action</em>
-</p>
+## Connectors in Action
+
+### Matrix
+
+<img src="images/matrix.png" width="400" alt="Matrix connector showing document library query" />
+
+The Matrix connector supports image uploads, activity notifications, and integrates with Element and other Matrix clients.
+
+### Slack
+
+<img src="images/slack.png" width="400" alt="Slack connector with web search" />
+
+The Slack connector uses Socket Mode for real-time messaging without requiring a public server.
+
+### WhatsApp
+
+<img src="images/whatsapp.png" width="400" alt="WhatsApp connector conversation" />
+
+The WhatsApp connector uses Baileys for WebSocket-based communication. Scan a QR code once to link.
 
 ## Features
 
