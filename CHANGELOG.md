@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored all connectors to extend `BaseConnector` (~17% code reduction)
 - Session storage moved to `~/.cache/opencode-chat-bridge/sessions/` (outside git repo)
 - Improved `/status` output (removed directory path, added token estimates)
+- Documentation now uses generic MCP examples (time, weather, web-search)
 
 ### Fixed
 - **Security: Added `write` tool to deny list** - was missing and allowed file creation
