@@ -4,6 +4,11 @@
   "model": "anthropic/claude-sonnet-4-5",
   "default_agent": "chat-bridge",
   
+  "mode": {
+    "build": { "prompt": "" },
+    "plan": { "prompt": "" }
+  },
+  
   "mcp": {
     "chrome-devtools": {
       "enabled": false
