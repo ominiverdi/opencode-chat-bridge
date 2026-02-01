@@ -144,20 +144,17 @@ opencode-chat-bridge/
   .env.example        # Environment template
 ```
 
-## Allowed Tools
+## MCP Server Support
 
-The `chat-bridge` agent allows only these tools:
+The bridge works with **any MCP server**. Configure allowed tools in `opencode.json`:
 
-| Tool | Description |
-|------|-------------|
-| `time_*` | Current time and timezone conversion |
-| `weather_*` | Weather conditions and forecasts |
-| `web-search_*` | Web search and URL fetching |
-| `question` | User interaction prompts |
+| Example Server | Tools |
+|----------------|-------|
+| `time` | Timezone queries |
+| `weather` | Weather conditions and forecasts |
+| `web-search` | Web search and URL fetching |
 
-These are examples. The bridge works with **any MCP server** - just add permissions in `opencode.json`.
-
-All filesystem tools (`read`, `edit`, `bash`, `glob`, `grep`, `task`) are denied.
+All filesystem tools (`read`, `edit`, `bash`, `glob`, `grep`, `task`) should be denied for public bots.
 
 ## Library Usage
 
