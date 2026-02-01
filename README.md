@@ -178,6 +178,10 @@ await client.disconnect()
 - [Debugging](docs/DEBUGGING.md)
 - [Contributing](docs/CONTRIBUTING.md)
 
+## See Also
+
+- [Kimaki](https://github.com/remorses/kimaki) - Feature-rich Discord integration for OpenCode with voice, git worktrees, session forking, and CI automation
+
 ## License
 
 [MIT](LICENSE)
