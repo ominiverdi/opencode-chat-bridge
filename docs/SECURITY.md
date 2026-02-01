@@ -103,8 +103,8 @@ Maximum restriction - only allow safe MCP tools:
         "codesearch": "deny",
         "question": "allow",
         "time_*": "allow",
-        "web-search_*": "allow",
-        "doclibrary_*": "allow"
+        "weather_*": "allow",
+        "web-search_*": "allow"
       }
     }
   }
@@ -169,8 +169,8 @@ For chat bots, use `"allow"` or `"deny"` - `"ask"` requires human interaction.
 | Tool | Description |
 |------|-------------|
 | `time_*` | Time queries |
+| `weather_*` | Weather conditions/forecasts |
 | `web-search_*` | Web search |
-| `doclibrary_*` | Document library |
 | `question` | User interaction |
 
 ### Dangerous - Deny for Public Bots
@@ -199,7 +199,7 @@ MCP tools follow the naming pattern `<server>_<tool>`:
 ```json
 {
   "permission": {
-    "doclibrary_*": "allow",
+    "weather_*": "allow",
     "chrome-devtools_*": "deny"
   }
 }

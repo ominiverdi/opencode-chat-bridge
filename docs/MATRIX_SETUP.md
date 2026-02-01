@@ -131,14 +131,7 @@ Or mention the bot directly:
 The bot shows what tools are being used:
 ```
 > Getting time in Europe/Madrid [time_get_current_time]
-> Searching documents: Mercator [doclibrary_search_documents]
-```
-
-### Image Support
-
-When requesting document pages, images are automatically uploaded:
-```
-!oc show me page 100 of usgs_snyder
+> Getting weather for Barcelona [weather_get_weather]
 ```
 
 ### Session Isolation
@@ -161,7 +154,7 @@ For simplicity, use unencrypted rooms for the bot.
 The bot uses the `chat-bridge` agent with restricted permissions:
 - No file reading
 - No command execution  
-- Only safe MCP tools (time, web-search, doclibrary)
+- Only safe MCP tools (time, weather, web-search)
 
 ### Rate Limiting
 

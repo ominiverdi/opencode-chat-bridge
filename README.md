@@ -30,7 +30,7 @@ The WhatsApp connector uses Baileys for WebSocket-based communication. Scan a QR
 - **CLI** - Interactive command-line interface
 - **Secure by design** - Permission-based tool restrictions (not prompt-based)
 - **Custom skills** - Markdown-based personality/behavior definitions
-- **Document library integration** - Search and display pages from indexed PDFs
+- **MCP server integration** - Use any MCP server (time, weather, web-search, etc.)
 
 ## Quick Start
 
@@ -77,8 +77,8 @@ In Matrix, Slack, or WhatsApp, use the trigger prefix (default: `!oc`):
 
 ```
 !oc what time is it?
-!oc search for map projections
-!oc show me page 50 of usgs_snyder
+!oc what's the weather in Barcelona?
+!oc search for opencode chat bridge
 !oc /help
 !oc /status
 !oc /clear
@@ -100,8 +100,8 @@ Unlike prompt-based restrictions (easily bypassed via injection), this bridge us
         "edit": "deny",
         "bash": "deny",
         "time_*": "allow",
-        "web-search_*": "allow",
-        "doclibrary_*": "allow"
+        "weather_*": "allow",
+        "web-search_*": "allow"
       }
     }
   }
@@ -150,11 +150,12 @@ The `chat-bridge` agent allows only these tools:
 
 | Tool | Description |
 |------|-------------|
-| `time_get_current_time` | Current time in any timezone |
-| `time_convert_time` | Convert between timezones |
+| `time_*` | Current time and timezone conversion |
+| `weather_*` | Weather conditions and forecasts |
 | `web-search_*` | Web search and URL fetching |
-| `doclibrary_*` | Document library queries and images |
 | `question` | User interaction prompts |
+
+These are examples. The bridge works with **any MCP server** - just add permissions in `opencode.json`.
 
 All filesystem tools (`read`, `edit`, `bash`, `glob`, `grep`, `task`) are denied.
 

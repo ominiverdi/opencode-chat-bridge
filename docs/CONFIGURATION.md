@@ -32,12 +32,9 @@ The `opencode.json` file defines the secure agent configuration:
         "webfetch": "deny",
         "codesearch": "deny",
         "question": "allow",
-        "time_get_current_time": "allow",
-        "time_convert_time": "allow",
-        "web-search_full-web-search": "allow",
-        "web-search_get-web-search-summaries": "allow",
-        "web-search_get-single-web-page-content": "allow",
-        "doclibrary_*": "allow"
+        "time_*": "allow",
+        "weather_*": "allow",
+        "web-search_*": "allow"
       }
     }
   }
@@ -87,15 +84,14 @@ MCP tools use the pattern `<server>_<tool>`:
 ```json
 {
   "permission": {
-    "time_get_current_time": "allow",
-    "time_convert_time": "allow",
-    "web-search_*": "allow",
-    "doclibrary_*": "allow"
+    "time_*": "allow",
+    "weather_*": "allow",
+    "web-search_*": "allow"
   }
 }
 ```
 
-**Wildcard matching:** `*` matches any characters, so `doclibrary_*` allows all doclibrary tools.
+**Wildcard matching:** `*` matches any characters, so `weather_*` allows all weather tools.
 
 ### Available MCP Servers
 
@@ -110,9 +106,11 @@ Common servers:
 | Server | Tools |
 |--------|-------|
 | `time` | `time_get_current_time`, `time_convert_time` |
+| `weather` | `weather_get_weather`, `weather_get_forecast`, `weather_search_location` |
 | `web-search` | `web-search_full-web-search`, `web-search_get-web-search-summaries`, `web-search_get-single-web-page-content` |
-| `doclibrary` | `doclibrary_search_documents`, `doclibrary_list_documents`, etc. |
 | `chrome-devtools` | Browser automation (deny for chat bots) |
+
+Any MCP server can be used. Check available servers with `opencode mcp list`.
 
 ### Disabling MCP Servers Locally
 
@@ -145,7 +143,7 @@ Your global OpenCode config (`~/.config/opencode/opencode.json`) may have MCP se
 **How it works:**
 - Local config **overrides** global config
 - You only need to specify `"enabled": false"` - not the full server definition
-- Other MCP servers (time, web-search, doclibrary) remain enabled from global config
+- Other MCP servers (time, weather, web-search) remain enabled from global config
 
 **Important:** Disabling the MCP server prevents tools from being loaded. But the model may still "think" it has access if tools were visible in a previous session. For complete blocking, combine with permission denials:
 
@@ -196,15 +194,14 @@ Use the `permission` section to block specific tools while keeping others:
   "agent": {
     "chat-bridge": {
       "permission": {
-        "doclibrary_get_page_image": "deny",
-        "doclibrary_get_element_image": "deny"
+        "weather_set_default_location": "deny"
       }
     }
   }
 }
 ```
 
-This allows most doclibrary tools but blocks the two image tools.
+This allows most weather tools but blocks the one that saves state.
 
 #### Method 3: Wildcard Deny All Functions from an MCP
 
@@ -231,20 +228,18 @@ Use `*` to deny all tools from a server without disabling it:
 | Block one specific tool | Single deny | `"permission": { "server_tool": "deny" }` |
 | Allow one tool, block rest | Selective | `"server_*": "deny"` + `"server_tool": "allow"` |
 
-#### Example: Allow Only Some doclibrary Tools
+#### Example: Allow Only Some web-search Tools
 
 ```json
 {
   "permission": {
-    "doclibrary_*": "deny",
-    "doclibrary_search_documents": "allow",
-    "doclibrary_list_documents": "allow",
-    "doclibrary_get_page_path": "allow"
+    "web-search_*": "deny",
+    "web-search_get-web-search-summaries": "allow"
   }
 }
 ```
 
-This denies all doclibrary tools by default, then explicitly allows only three.
+This denies all web-search tools by default, then explicitly allows only the lightweight summary search.
 
 ### Why Both MCP Disable AND Permission Deny?
 
@@ -475,23 +470,16 @@ DISCORD_TOKEN="..."
         "generate_image": "deny",
         "image_quota": "deny",
         
-        "time_get_current_time": "allow",
-        "time_convert_time": "allow",
-        
-        "web-search_full-web-search": "allow",
-        "web-search_get-web-search-summaries": "allow",
-        "web-search_get-single-web-page-content": "allow",
-        
-        "doclibrary_*": "allow",
-        "doclibrary_get_page_image": "deny",
-        "doclibrary_get_element_image": "deny"
+        "time_*": "allow",
+        "weather_*": "allow",
+        "web-search_*": "allow"
       }
     }
   }
 }
 ```
 
-Note: The `doclibrary_get_page_image` and `doclibrary_get_element_image` tools are denied because they return base64 encoded images which are too large for chat. Use `doclibrary_get_page_path` and `doclibrary_get_element_path` instead - the connectors handle image uploads from file paths.
+This configuration allows time, weather, and web-search MCP tools while denying all filesystem and dangerous tools.
 
 ## Session Management
 
@@ -620,9 +608,9 @@ If the bot uses `opencode/big-pickle` instead of your intended model:
 
 ### "Images not displaying in Matrix"
 
-If doclibrary images aren't showing in Matrix chat:
+If MCP tool images aren't showing in Matrix chat:
 
-1. Tool results contain `[DOCLIBRARY_IMAGE]...[/DOCLIBRARY_IMAGE]` markers
+1. Tool results contain image path markers (e.g., `[DOCLIBRARY_IMAGE]...[/DOCLIBRARY_IMAGE]`)
 2. These come in tool_result events, not in response text chunks
 3. The Matrix connector captures tool results via `update` events
-4. Check logs for `[IMAGE] Found doclibrary image` messages
+4. Check logs for `[IMAGE]` messages

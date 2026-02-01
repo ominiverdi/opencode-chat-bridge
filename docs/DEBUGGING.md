@@ -183,12 +183,12 @@ MCP tools follow the pattern `<server>_<tool>`:
 | Server | Example Tools |
 |--------|---------------|
 | `time` | `time_get_current_time`, `time_convert_time` |
+| `weather` | `weather_get_weather`, `weather_get_forecast` |
 | `web-search` | `web-search_full-web-search` |
-| `doclibrary` | `doclibrary_search_documents` |
 
 To allow all from a server:
 ```json
-"doclibrary_*": "allow"
+"weather_*": "allow"
 ```
 
 ## Log Locations

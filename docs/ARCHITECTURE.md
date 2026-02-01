@@ -187,7 +187,7 @@ This is resistant to prompt injection because:
 
 ## Building Chat Connectors
 
-To build a chat platform connector (Matrix, Slack, WhatsApp, Discord, etc.):
+To build a chat platform connector (Matrix, Slack, WhatsApp, IRC, etc.):
 
 ### 1. Create a connector that uses ACPClient
 
@@ -245,7 +245,7 @@ client.on("tool", ({ name, status }) => {
 
 ### 4. Handle images from tool results
 
-**Important:** Images from MCP tools (like doclibrary) come in tool results, NOT in response text chunks. You must listen to `update` events:
+**Important:** Images from MCP tools come in tool results, NOT in response text chunks. You must listen to `update` events:
 
 ```typescript
 let toolResultsBuffer = ""
@@ -301,8 +301,10 @@ MCP servers are configured globally in OpenCode. The `chat-bridge` agent can use
 | Server | Tools |
 |--------|-------|
 | `time` | `time_get_current_time`, `time_convert_time` |
+| `weather` | `weather_get_weather`, `weather_get_forecast`, etc. |
 | `web-search` | `web-search_full-web-search`, etc. |
-| `doclibrary` | `doclibrary_search_documents`, etc. |
+
+These are examples. Any MCP server can be used - just configure permissions in `opencode.json`.
 
 Dangerous servers like `chrome-devtools` are blocked by the permission config.
 

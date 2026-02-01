@@ -53,8 +53,8 @@ We have connectors for several chat platforms, with more planned:
 | Matrix | Done | - |
 | Slack | Done | - |
 | WhatsApp | Done | - |
-| Discord | Planned | Medium |
 | IRC | Planned | Low |
+| Telegram | Planned | Low |
 
 ### 2. Skills
 
