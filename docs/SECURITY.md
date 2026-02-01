@@ -49,6 +49,17 @@ This is enforced at the **tool execution level**, not the prompt level:
 - The config file is not accessible to the LLM
 - Denials are enforced regardless of prompts
 
+## Session Directory Config
+
+OpenCode reads `opencode.json` from its working directory. Since each chat session runs in an isolated directory (`~/.cache/opencode-chat-bridge/sessions/<connector>/<channel>/`), the bridge automatically copies `opencode.json` from the project directory to each session directory.
+
+This happens via `copyOpenCodeConfig()` when a session is created:
+- Ensures every session has the security permissions applied
+- Updates automatically when the source config changes
+- No manual copying needed
+
+**Important:** If you modify `opencode.json`, existing sessions will get the updated config on next message (the copy happens if source is newer).
+
 ## Tested Attack Vectors
 
 All of these are blocked by the permission system:
@@ -80,6 +91,7 @@ Maximum restriction - only allow safe MCP tools:
     "chat-bridge": {
       "permission": {
         "read": "deny",
+        "write": "deny",
         "edit": "deny",
         "bash": "deny",
         "glob": "deny",
@@ -166,6 +178,7 @@ For chat bots, use `"allow"` or `"deny"` - `"ask"` requires human interaction.
 | Tool | Risk |
 |------|------|
 | `read` | File exfiltration |
+| `write` | File creation |
 | `edit` | Code modification |
 | `bash` | Arbitrary command execution |
 | `task` | Spawning subagents |
@@ -326,7 +339,7 @@ Before deploying:
 
 - [ ] `opencode.json` uses `chat-bridge` agent with restrictive permissions
 - [ ] `default_agent` is set to `chat-bridge`
-- [ ] All dangerous tools (`read`, `edit`, `bash`) are denied
+- [ ] All dangerous tools (`read`, `write`, `edit`, `bash`) are denied
 - [ ] Access tokens are in environment variables
 - [ ] Config files have restricted permissions
 - [ ] Rate limiting is implemented

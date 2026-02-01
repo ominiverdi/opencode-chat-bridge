@@ -19,6 +19,7 @@ export {
   estimateTokens,
   extractImagePaths,
   removeImageMarkers,
+  copyOpenCodeConfig,
   type SessionConfig 
 } from "./session-utils"
 

@@ -11,7 +11,8 @@ import {
   ensureSessionDir, 
   cleanupOldSessions, 
   estimateTokens,
-  getSessionStorageInfo 
+  getSessionStorageInfo,
+  copyOpenCodeConfig,
 } from "./session-utils"
 
 // =============================================================================
@@ -299,6 +300,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     if (!session) {
       const sessionDir = getSessionDir(this.config.connector, id)
       ensureSessionDir(sessionDir)
+      copyOpenCodeConfig(sessionDir)  // Apply security permissions
       
       const client = new ACPClient({ cwd: sessionDir })
       
