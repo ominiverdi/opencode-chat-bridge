@@ -5,6 +5,9 @@
   "default_agent": "chat-bridge",
   
   "mcp": {
+    "chrome-devtools": {
+      "enabled": false
+    },
     "weather": {
       "type": "local",
       "command": ["npx", "-y", "open-meteo-mcp-lite"],
