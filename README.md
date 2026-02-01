@@ -171,6 +171,7 @@ await client.disconnect()
 - [Configuration](docs/CONFIGURATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security](docs/SECURITY.md)
+- [Debugging](docs/DEBUGGING.md)
 - [Contributing](docs/CONTRIBUTING.md)
 
 ## License
