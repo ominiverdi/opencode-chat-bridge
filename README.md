@@ -55,7 +55,7 @@ Use the trigger prefix (default: `!oc`) or mention the bot:
 
 ## Permissions
 
-OpenCode uses tools (functions) to perform actions. The `opencode.json` file controls which tools the bot can use.
+OpenCode uses tools (functions) to perform actions. The `opencode.json` file controls which tools the bot can use. A local file in the working directory overrides your global config (`~/.config/opencode/opencode.json`).
 
 **Built-in tools** are part of OpenCode:
 
