@@ -114,15 +114,9 @@ Tool names follow the pattern `<server>_<tool>`. The `*` wildcard matches all to
 
 ## AGENTS.md
 
-OpenCode reads `AGENTS.md` files for instructions. The model learns about its capabilities from these files, not just from tool definitions.
+OpenCode loads `AGENTS.md` for model instructions. A global file at `~/.config/opencode/AGENTS.md` applies to all sessions.
 
-**Important:** Your global `~/.config/opencode/AGENTS.md` affects all sessions. If it lists tools like `chrome-devtools`, the model will mention them even if disabled in `opencode.json`.
-
-This project includes a minimal `AGENTS.md` that:
-- Tells the model to identify as "an assistant" (not "Claude Code")
-- Lets the model discover its tools dynamically
-
-The file is copied to session directories to override any global config. If the model mentions tools it shouldn't have, check your global `AGENTS.md`.
+This project includes its own `AGENTS.md` that gets copied to session directories, overriding the global one. This ensures consistent behavior across chat sessions regardless of your personal OpenCode configuration.
 
 ## Security
 
