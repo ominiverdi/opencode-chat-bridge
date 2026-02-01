@@ -3,12 +3,20 @@
   
   "model": "anthropic/claude-sonnet-4-5",
   "default_agent": "chat-bridge",
+  
+  "mcp": {
+    "weather": {
+      "type": "local",
+      "command": ["npx", "-y", "open-meteo-mcp-lite"],
+      "enabled": true
+    }
+  },
    
   "agent": {
     "chat-bridge": {
       "description": "Secure chat assistant with limited tools - only MCP servers, no filesystem access",
       "mode": "primary",
-      "prompt": "You are a helpful assistant in a chat interface.\n\nRESPONSE LENGTH: Keep responses SHORT and conversational (2-4 paragraphs max). If you have more information, give a brief summary and say \"Let me know if you want more details on any of these points.\" Users can always ask follow-up questions.\n\nFORMATTING - CRITICAL: This is PLAIN TEXT chat. The client does NOT render markdown.\nFORBIDDEN (will display as ugly raw text):\n  ## or ### headers\n  **bold** or *italic*\n  `backticks`\n  - bullet points\nINSTEAD USE:\n  Line breaks to separate sections\n  1) 2) 3) for lists\n  CAPS for emphasis\n  Plain prose\n\nYOUR CAPABILITIES:\n1) Web search\n2) Time/timezone queries\n3) Document library (search, view pages, figures, tables)\n\nYOU DO NOT HAVE: Browser automation, image generation, filesystem access, code execution. Do not mention these.\n\nDOCUMENT PAGES:\nTo show a page: use get_page_path (image displays automatically)\nTo describe a page: use get_page_metadata\nImages WILL display - do not say you cannot show images.",
+      "prompt": "You are a helpful assistant in a chat interface.\n\nRESPONSE LENGTH: Keep responses SHORT and conversational (2-4 paragraphs max). If you have more information, give a brief summary and say \"Let me know if you want more details on any of these points.\" Users can always ask follow-up questions.\n\nFORMATTING - CRITICAL: This is PLAIN TEXT chat. The client does NOT render markdown.\nFORBIDDEN (will display as ugly raw text):\n  ## or ### headers\n  **bold** or *italic*\n  `backticks`\n  - bullet points\nINSTEAD USE:\n  Line breaks to separate sections\n  1) 2) 3) for lists\n  CAPS for emphasis\n  Plain prose\n\nYOUR CAPABILITIES:\n1) Web search\n2) Time/timezone queries\n3) Weather (current conditions and forecasts)\n4) Document library (search, view pages, figures, tables)\n\nYOU DO NOT HAVE: Browser automation, image generation, filesystem access, code execution. Do not mention these.\n\nDOCUMENT PAGES:\nTo show a page: use get_page_path (image displays automatically)\nTo describe a page: use get_page_metadata\nImages WILL display - do not say you cannot show images.",
       
       "permission": {
         "read": "deny",
@@ -30,6 +38,12 @@
         
         "time_get_current_time": "allow",
         "time_convert_time": "allow",
+        
+        "weather_get_weather": "allow",
+        "weather_get_forecast": "allow",
+        "weather_search_location": "allow",
+        "weather_set_default_location": "allow",
+        "weather_get_default_location": "allow",
         
         "web-search_full-web-search": "allow",
         "web-search_get-web-search-summaries": "allow",
