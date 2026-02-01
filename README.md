@@ -3,9 +3,12 @@
 Bridge [OpenCode](https://opencode.ai) to chat platforms like Matrix, Slack, and WhatsApp, with secure permission-based tool access.
 
 <p align="center">
-  <img src="images/matrix.png" width="280" alt="Matrix" />
-  <img src="images/slack.png" width="280" alt="Slack" />
-  <img src="images/whatsapp.png" width="280" alt="WhatsApp" />
+  <img src="images/matrix.png" width="280" alt="Matrix connector screenshot" />
+  <img src="images/slack.png" width="280" alt="Slack connector screenshot" />
+  <img src="images/whatsapp.png" width="280" alt="WhatsApp connector screenshot" />
+</p>
+<p align="center">
+  <em>Matrix, Slack, and WhatsApp connectors in action</em>
 </p>
 
 ## Features
