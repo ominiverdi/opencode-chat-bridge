@@ -194,10 +194,20 @@ export function estimateTokens(chars: number): number {
 const IMAGE_MARKER_REGEX = /\[DOCLIBRARY_IMAGE\]([^\[]+)\[\/DOCLIBRARY_IMAGE\]/gi
 
 /**
- * Extract image file paths from text containing doclibrary markers
+ * Image path format used by generate_image plugin
+ * Format: Path: /path/to/file.png
+ */
+const IMAGE_PATH_REGEX = /Path:\s*(\/[^\s\n]+\.(?:png|jpg|jpeg|gif|webp))/gi
+
+/**
+ * Extract image file paths from text containing image markers or path references
  * 
- * @param text - Text that may contain image markers
- * @returns Array of file paths extracted from markers
+ * Supports:
+ * - [DOCLIBRARY_IMAGE]/path/to/file.png[/DOCLIBRARY_IMAGE] (doclibrary)
+ * - Path: /path/to/file.png (generate_image plugin)
+ * 
+ * @param text - Text that may contain image markers or paths
+ * @returns Array of file paths extracted
  */
 export function extractImagePaths(text: string): string[] {
   const paths: string[] = []
@@ -205,10 +215,20 @@ export function extractImagePaths(text: string): string[] {
   
   // Reset lastIndex in case regex was used before
   IMAGE_MARKER_REGEX.lastIndex = 0
+  IMAGE_PATH_REGEX.lastIndex = 0
   
+  // Extract from [DOCLIBRARY_IMAGE] markers
   while ((match = IMAGE_MARKER_REGEX.exec(text)) !== null) {
     const imagePath = match[1].trim()
-    if (imagePath) {
+    if (imagePath && !paths.includes(imagePath)) {
+      paths.push(imagePath)
+    }
+  }
+  
+  // Extract from "Path: /path/to/file" format
+  while ((match = IMAGE_PATH_REGEX.exec(text)) !== null) {
+    const imagePath = match[1].trim()
+    if (imagePath && !paths.includes(imagePath)) {
       paths.push(imagePath)
     }
   }
@@ -217,11 +237,32 @@ export function extractImagePaths(text: string): string[] {
 }
 
 /**
- * Remove all image markers from text
+ * Remove all image markers and path references from text
  * 
- * @param text - Text containing image markers
- * @returns Text with all [DOCLIBRARY_IMAGE]...[/DOCLIBRARY_IMAGE] markers removed
+ * @param text - Text containing image markers or path references
+ * @returns Text with markers and path lines removed
  */
 export function removeImageMarkers(text: string): string {
-  return text.replace(/\[DOCLIBRARY_IMAGE\][^\[]+\[\/DOCLIBRARY_IMAGE\]/gi, "").trim()
+  return text
+    .replace(/\[DOCLIBRARY_IMAGE\][^\[]+\[\/DOCLIBRARY_IMAGE\]/gi, "")
+    .replace(/Path:\s*\/[^\s\n]+\.(?:png|jpg|jpeg|gif|webp)\n?/gi, "")
+    .trim()
+}
+
+/**
+ * Sanitize server paths from text for security
+ * Replaces absolute paths with just the filename
+ * 
+ * Example: "/home/user/.cache/opencode/file.jpg" -> "file.jpg"
+ * 
+ * @param text - Text that may contain server paths
+ * @returns Text with absolute paths replaced by filenames
+ */
+export function sanitizeServerPaths(text: string): string {
+  // Match absolute paths: /path/to/filename.ext
+  // Captures paths starting with / followed by path segments and a filename with extension
+  return text.replace(
+    /\/(?:[\w.-]+\/)+([^\/\s]+\.[a-zA-Z0-9]+)/g,
+    (match, filename) => filename
+  )
 }

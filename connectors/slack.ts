@@ -22,6 +22,7 @@ import {
   type BaseSession,
   extractImagePaths,
   removeImageMarkers,
+  sanitizeServerPaths,
 } from "../src"
 
 // =============================================================================
@@ -205,8 +206,8 @@ class SlackConnector extends BaseConnector<ChannelSession> {
 
     // Collect tool results (may contain images)
     const updateHandler = (update: any) => {
-      if (update.type === "tool_result" && update.content) {
-        toolResultsBuffer += JSON.stringify(update.content)
+      if (update.type === "tool_result" && update.toolResult) {
+        toolResultsBuffer += JSON.stringify(update.toolResult)
       }
     }
 
@@ -239,7 +240,7 @@ class SlackConnector extends BaseConnector<ChannelSession> {
       }
 
       // Clean response and send
-      const cleanResponse = removeImageMarkers(responseBuffer)
+      const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
       if (cleanResponse) {
         session.outputChars += cleanResponse.length
         await say(cleanResponse)
