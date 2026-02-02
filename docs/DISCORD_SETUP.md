@@ -19,6 +19,7 @@ Go to **OAuth2 > URL Generator**:
 
 1. Select scopes: `bot`
 2. Select permissions:
+   - Read Messages/View Channels
    - Send Messages
    - Read Message History
    - Attach Files (for image responses)
@@ -42,14 +43,19 @@ bun connectors/discord.ts
 
 ## Usage
 
-In any channel where the bot has access:
+In any channel where the bot has access, use @mentions or the trigger prefix:
 
 ```
+@your-bot-name what time is it?
+@your-bot-name who are you?
+
 !oc what time is it?
 !oc search for opencode documentation
 !oc /help
 !oc /clear
 ```
+
+You can also DM the bot directly.
 
 ## Troubleshooting
 

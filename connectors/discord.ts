@@ -17,6 +17,7 @@ import {
   Client,
   GatewayIntentBits,
   Events,
+  Partials,
   type Message,
   type TextBasedChannel,
   AttachmentBuilder,
@@ -86,6 +87,7 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
       ],
+      partials: [Partials.Channel], // Required for DM support
     })
 
     // Ready event
@@ -134,11 +136,28 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     const userId = message.author.id
     const channelId = message.channelId
 
-    // Check for trigger prefix
-    const triggerMatch = content.match(new RegExp(`^${TRIGGER}\\s+(.+)`, "is"))
-    if (!triggerMatch) return
+    let query = ""
 
-    const query = triggerMatch[1].trim()
+    // Check for trigger prefix (!oc ...)
+    const triggerMatch = content.match(new RegExp(`^${TRIGGER}\\s+(.+)`, "is"))
+    if (triggerMatch) {
+      query = triggerMatch[1].trim()
+    }
+
+    // Check for @mention
+    if (!query && this.client?.user) {
+      const mentionRegex = new RegExp(`^<@!?${this.client.user.id}>\\s*(.*)`, "is")
+      const mentionMatch = content.match(mentionRegex)
+      if (mentionMatch) {
+        query = mentionMatch[1].trim()
+        // If just mentioned with no query, provide help
+        if (!query) {
+          await message.reply(`Hello! You can ask me anything. Example: \`@${this.client.user.username} what's the weather?\` or \`${TRIGGER} what's the weather?\``)
+          return
+        }
+      }
+    }
+
     if (!query) return
 
     this.log(`[MSG] ${message.author.tag} in ${channelId}: ${content}`)
