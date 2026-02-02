@@ -33,6 +33,7 @@ import {
   type BaseSession,
   extractImagePaths,
   removeImageMarkers,
+  sanitizeServerPaths,
 } from "../src"
 
 // =============================================================================
@@ -330,7 +331,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       }
 
       // Clean response and send
-      const cleanResponse = removeImageMarkers(responseBuffer)
+      const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
       if (cleanResponse) {
         session.outputChars += cleanResponse.length
         await this.sendMessage(chatId, cleanResponse)

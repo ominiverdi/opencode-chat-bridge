@@ -4,6 +4,11 @@
   "model": "google/gemini-2.5-flash",
   "default_agent": "chat-bridge",
   
+  "plugin": [
+    "opencode-antigravity-auth@beta",
+    "/home/ominiverdi/github/opencode-antigravity-img"
+  ],
+  
   "mode": {
     "build": { "prompt": "" },
     "plan": { "prompt": "" }
@@ -41,8 +46,8 @@
         "question": "allow",
         
         "chrome-devtools_*": "deny",
-        "generate_image": "deny",
-        "image_quota": "deny",
+        "generate_image": "allow",
+        "image_quota": "allow",
         
         "time_get_current_time": "allow",
         "time_convert_time": "allow",
@@ -56,6 +61,9 @@
         "web-search_full-web-search": "allow",
         "web-search_get-web-search-summaries": "allow",
         "web-search_get-single-web-page-content": "allow",
+        
+        "search_web": "allow",
+        "read_url_content": "allow",
         
         "doclibrary_search_documents": "allow",
         "doclibrary_search_visual_elements": "allow",
