@@ -22,6 +22,10 @@ Uses Socket Mode for real-time messaging without requiring a public server.
 
 Uses Baileys for WebSocket-based communication. Scan a QR code once to link.
 
+### Discord
+
+Uses discord.js for real-time messaging. Simple bot setup via Developer Portal.
+
 ## Quick Start
 
 ```bash
@@ -37,9 +41,10 @@ Run a connector:
 bun connectors/matrix.ts
 bun connectors/slack.ts
 bun connectors/whatsapp.ts
+bun connectors/discord.ts
 ```
 
-See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md)
+See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md)
 
 ## Usage
 
@@ -136,6 +141,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 ```
 opencode-chat-bridge/
   connectors/
+    discord.ts
     matrix.ts
     slack.ts
     whatsapp.ts
