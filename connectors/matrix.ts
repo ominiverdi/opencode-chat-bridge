@@ -294,6 +294,9 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
     this.log(`[MSG] ${sender}: ${body}`)
 
+    // Check if this is a DM (direct message) room - use the room parameter passed to handler
+    const isDM = room && room.getJoinedMemberCount() === 2
+
     // Check trigger
     let query = ""
     if (body.startsWith(TRIGGER + " ")) {
@@ -302,8 +305,12 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       query = body.slice(TRIGGER.length).trim()
     } else if (body.includes(USER_ID!)) {
       query = body.replace(USER_ID!, "").trim()
-    } else if (body.match(/^@bot[:\s]/i)) {
-      query = body.replace(/^@bot[:\s]*/i, "").trim()
+    } else if (body.match(/^@?bot[:\s]/i)) {
+      // Match "bot:" or "@bot:" at start
+      query = body.replace(/^@?bot[:\s]*/i, "").trim()
+    } else if (isDM) {
+      // In DM rooms, respond to all messages without trigger
+      query = body
     } else {
       return
     }
