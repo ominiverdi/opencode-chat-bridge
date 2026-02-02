@@ -24,7 +24,9 @@ Uses Baileys for WebSocket-based communication. Scan a QR code once to link.
 
 ### Discord
 
-Uses discord.js for real-time messaging. Simple bot setup via Developer Portal.
+<img src="images/discord.png" width="400" alt="Discord connector" />
+
+Uses discord.js for real-time messaging. Supports @mentions and DMs.
 
 ## Quick Start
 
