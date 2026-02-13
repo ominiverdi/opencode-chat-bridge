@@ -19,8 +19,27 @@ import fs from "fs"
 import path from "path"
 import os from "os"
 
-// E2EE: IndexedDB polyfill for Node.js/Bun (must be before crypto import)
-import "fake-indexeddb/auto"
+// E2EE: Persistent IndexedDB using SQLite (must be before crypto import)
+// This replaces fake-indexeddb which was in-memory only
+import setGlobalVars from "indexeddbshim"
+
+// E2EE: Crypto store path - SQLite databases will be stored here
+const CRYPTO_STORE_PATH = process.env.MATRIX_CRYPTO_STORE || 
+  path.join(os.homedir(), ".local", "share", "opencode-matrix-crypto")
+
+// Ensure crypto store directory exists before setting up IndexedDB
+if (!fs.existsSync(CRYPTO_STORE_PATH)) {
+  fs.mkdirSync(CRYPTO_STORE_PATH, { recursive: true })
+}
+
+// Set up IndexedDB with SQLite persistence
+// @ts-ignore - indexeddbshim types
+global.window = global
+setGlobalVars(global, {
+  checkOrigin: false,  // Disable origin checks for Node.js
+  databaseBasePath: CRYPTO_STORE_PATH,  // Store SQLite files here
+  addSQLiteExtension: true,  // Add .sqlite extension to database files
+})
 
 import * as sdk from "matrix-js-sdk"
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
@@ -51,9 +70,7 @@ const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 
-// E2EE: Crypto store path for persistent encryption keys
-const CRYPTO_STORE_PATH = process.env.MATRIX_CRYPTO_STORE || 
-  path.join(os.homedir(), ".local", "share", "opencode-matrix-crypto")
+// Note: CRYPTO_STORE_PATH is defined at the top of the file for IndexedDB setup
 
 // =============================================================================
 // Session Type
@@ -107,10 +124,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     this.logStartup()
     await this.cleanupSessions()
 
-    // Ensure crypto store directory exists
-    if (!fs.existsSync(CRYPTO_STORE_PATH)) {
-      fs.mkdirSync(CRYPTO_STORE_PATH, { recursive: true })
-    }
+    // Note: Crypto store directory already created at top of file during IndexedDB setup
 
     // Login and create client
     await this.login()
