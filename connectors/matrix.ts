@@ -227,10 +227,23 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     try {
       // Access the private engine.machine via runtime (TypeScript private isn't enforced)
       const crypto = this.matrix!.crypto as any
-      if (crypto?.engine?.machine?.bootstrapCrossSigning) {
-        this.log("Bootstrapping cross-signing...")
-        await crypto.engine.machine.bootstrapCrossSigning(false)
-        this.log("Cross-signing bootstrapped successfully!")
+      const machine = crypto?.engine?.machine
+      
+      if (machine?.bootstrapCrossSigning) {
+        // Check status before
+        const statusBefore = await machine.crossSigningStatus()
+        this.log(`Cross-signing status before: master=${statusBefore.hasMaster}, self=${statusBefore.hasSelfSigning}, user=${statusBefore.hasUserSigning}`)
+        
+        if (!statusBefore.hasMaster) {
+          this.log("Bootstrapping cross-signing...")
+          await machine.bootstrapCrossSigning(true) // true = reset/create new
+          
+          // Check status after
+          const statusAfter = await machine.crossSigningStatus()
+          this.log(`Cross-signing status after: master=${statusAfter.hasMaster}, self=${statusAfter.hasSelfSigning}, user=${statusAfter.hasUserSigning}`)
+        } else {
+          this.log("Cross-signing already set up")
+        }
       } else {
         this.log("Cross-signing bootstrap not available in this version")
       }
