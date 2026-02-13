@@ -1,6 +1,6 @@
 {
   "name": "opencode-chat-bridge",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Bridge OpenCode AI to chat platforms (Matrix, Slack, WhatsApp) with secure permission-based tool access",
   "type": "module",
   "main": "dist/index.js",

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-13
+
+### Added
+- **E2EE support for Matrix** - Bot now works in encrypted rooms
+- Native Rust crypto via `matrix-bot-sdk` with SQLite key persistence
+- Password-based login with automatic token caching
+
+### Changed
+- **Replaced `matrix-js-sdk` with `matrix-bot-sdk`** - cleaner API, built-in E2EE
+- Removed `indexeddbshim` and `@matrix-org/matrix-sdk-crypto-wasm` dependencies
+- Simplified Matrix connector code (~40% smaller)
+- Requires Node.js 22+ (for native crypto bindings)
+
+### Fixed
+- E2EE key persistence across restarts (was in-memory only)
+- Crypto storage now uses native SQLite instead of IndexedDB polyfills
+
+### Notes
+- "Unverified device" warning is cosmetic - E2EE works correctly
+- Cross-signing requires manual verification from Element (UIA limitation)
+- Back up `~/.local/share/opencode-matrix-bot/` for crypto key persistence
+
 ## [0.3.0] - 2026-02-01
 
 ### Added

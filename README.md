@@ -8,7 +8,7 @@ Bridge [OpenCode](https://opencode.ai) to chat platforms with permission-based s
 
 <img src="images/matrix.png" width="400" alt="Matrix connector" />
 
-Supports image uploads and integrates with Element and other Matrix clients.
+Supports **E2EE (encrypted rooms)**, image uploads, and integrates with Element and other Matrix clients. Uses native Rust crypto with persistent key storage.
 
 ### Slack
 
@@ -177,6 +177,7 @@ await client.disconnect()
 
 - [Bun](https://bun.sh) runtime
 - [OpenCode](https://opencode.ai) installed and authenticated
+- **Node.js 22+** (for Matrix E2EE - native crypto bindings)
 
 ## Documentation
 
