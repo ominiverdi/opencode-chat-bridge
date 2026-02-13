@@ -18,6 +18,10 @@
 import fs from "fs"
 import path from "path"
 import os from "os"
+
+// E2EE: IndexedDB polyfill for Node.js/Bun (must be before crypto import)
+import "fake-indexeddb/auto"
+
 import * as sdk from "matrix-js-sdk"
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
@@ -29,7 +33,7 @@ import {
   sanitizeServerPaths,
 } from "../src"
 
-// E2EE: Import Rust crypto
+// E2EE: Import Rust crypto (after IndexedDB polyfill)
 import "@matrix-org/matrix-sdk-crypto-wasm"
 
 // =============================================================================
