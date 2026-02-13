@@ -17,6 +17,7 @@
 
 import fs from "fs"
 import path from "path"
+import os from "os"
 import * as sdk from "matrix-js-sdk"
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
@@ -27,6 +28,9 @@ import {
   removeImageMarkers,
   sanitizeServerPaths,
 } from "../src"
+
+// E2EE: Import Rust crypto
+import "@matrix-org/matrix-sdk-crypto-wasm"
 
 // =============================================================================
 // Configuration
@@ -42,6 +46,10 @@ const TRIGGER = config.trigger
 const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
+
+// E2EE: Crypto store path for persistent encryption keys
+const CRYPTO_STORE_PATH = process.env.MATRIX_CRYPTO_STORE || 
+  path.join(os.homedir(), ".local", "share", "opencode-matrix-crypto")
 
 // =============================================================================
 // Session Type
@@ -91,14 +99,26 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     console.log(`  User: ${USER_ID}`)
     console.log(`  Device ID: ${DEVICE_ID}`)
     console.log(`  Auth: ${PASSWORD ? "password" : "access token"}`)
+    console.log(`  E2EE: enabled (store: ${CRYPTO_STORE_PATH})`)
     this.logStartup()
     await this.cleanupSessions()
+
+    // Ensure crypto store directory exists
+    if (!fs.existsSync(CRYPTO_STORE_PATH)) {
+      fs.mkdirSync(CRYPTO_STORE_PATH, { recursive: true })
+    }
 
     // Login and create client
     await this.login()
 
-    // Handle room messages
+    // Handle room messages (including decrypted ones)
     this.matrix!.on(sdk.RoomEvent.Timeline, this.handleRoomEvent.bind(this))
+    
+    // Handle decrypted messages - re-process after decryption
+    this.matrix!.on(sdk.MatrixEventEvent.Decrypted, async (event) => {
+      const room = this.matrix!.getRoom(event.getRoomId()!)
+      await this.handleRoomEvent(event, room ?? undefined, false)
+    })
 
     // Handle sync state changes and token expiry
     this.matrix!.on(sdk.ClientEvent.Sync, async (state: string, prevState: string | null) => {
@@ -195,13 +215,16 @@ class MatrixConnector extends BaseConnector<RoomSession> {
         this.currentAccessToken = loginResponse.access_token
         console.log(`  Login successful! Device: ${loginResponse.device_id}`)
 
-        // Create the actual client with the new token
+        // Create the actual client with the new token and crypto support
         this.matrix = sdk.createClient({
           baseUrl: HOMESERVER,
           accessToken: this.currentAccessToken!,
           userId: USER_ID!,
           deviceId: loginResponse.device_id,
         })
+
+        // Initialize E2EE with Rust crypto
+        await this.initializeCrypto()
       } catch (err: any) {
         this.logError("Password login failed:", err.message || err)
         throw err
@@ -215,7 +238,36 @@ class MatrixConnector extends BaseConnector<RoomSession> {
         baseUrl: HOMESERVER,
         accessToken: ACCESS_TOKEN,
         userId: USER_ID,
+        deviceId: DEVICE_ID,
       })
+
+      // Initialize E2EE with Rust crypto
+      await this.initializeCrypto()
+    }
+  }
+
+  private async initializeCrypto(): Promise<void> {
+    if (!this.matrix) return
+
+    try {
+      this.log("Initializing E2EE (Rust crypto)...")
+      
+      // Initialize Rust crypto with persistent store
+      await this.matrix.initRustCrypto({
+        storePath: CRYPTO_STORE_PATH,
+        storePassphrase: "opencode-matrix-bridge",
+      })
+
+      // Set up crypto event handlers
+      this.matrix.on(sdk.CryptoEvent.VerificationRequestReceived, (request) => {
+        this.log(`Verification request from: ${request.otherUserId}`)
+        // Auto-accept verification for simplicity (can be made interactive)
+      })
+
+      this.log("E2EE initialized successfully!")
+    } catch (err: any) {
+      this.logError("Failed to initialize E2EE:", err.message || err)
+      this.log("Continuing without E2EE support - encrypted messages won't be readable")
     }
   }
 
@@ -238,6 +290,10 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
       // Re-attach event handlers
       this.matrix!.on(sdk.RoomEvent.Timeline, this.handleRoomEvent.bind(this))
+      this.matrix!.on(sdk.MatrixEventEvent.Decrypted, async (event) => {
+        const room = this.matrix!.getRoom(event.getRoomId()!)
+        await this.handleRoomEvent(event, room ?? undefined, false)
+      })
       this.matrix!.on(sdk.ClientEvent.Sync, async (state: string, prevState: string | null) => {
         if (state !== prevState) {
           this.log(`[SYNC] ${prevState} -> ${state}`)
@@ -277,8 +333,22 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     room: sdk.Room | undefined,
     toStartOfTimeline: boolean | undefined
   ): Promise<void> {
-    // Ignore old messages and non-text messages
+    // Ignore old messages
     if (toStartOfTimeline) return
+    
+    // Handle encrypted messages - wait for decryption
+    if (event.isEncrypted()) {
+      // Check if already decrypted
+      if (event.isDecryptionFailure()) {
+        this.log(`[CRYPTO] Failed to decrypt message from ${event.getSender()}`)
+        return
+      }
+      // If still being decrypted, the event will be re-emitted when done
+      if (event.isBeingDecrypted()) {
+        return
+      }
+    }
+    
     if (event.getType() !== "m.room.message") return
 
     const content = event.getContent()
