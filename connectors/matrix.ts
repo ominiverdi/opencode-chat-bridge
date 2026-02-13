@@ -147,8 +147,9 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     // Start the client (this prepares crypto automatically)
     await this.matrix.start()
     
-    // Bootstrap cross-signing to verify the device (removes "unverified device" warning)
-    await this.bootstrapCrossSigning()
+    // Note: "Unverified device" warning is cosmetic - E2EE still works
+    // Cross-signing requires User Interactive Auth which bots can't easily do
+    // To remove warning: verify bot's device manually from Element
     
     this.log("Started! Listening for messages...")
   }
@@ -218,38 +219,6 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     } catch (err: any) {
       this.logError("Password login failed:", err.message || err)
       return null
-    }
-  }
-
-  private async bootstrapCrossSigning(): Promise<void> {
-    // Bootstrap cross-signing to mark the device as verified
-    // This removes the "Encrypted by a device not verified by its owner" warning
-    try {
-      // Access the private engine.machine via runtime (TypeScript private isn't enforced)
-      const crypto = this.matrix!.crypto as any
-      const machine = crypto?.engine?.machine
-      
-      if (machine?.bootstrapCrossSigning) {
-        // Check status before
-        const statusBefore = await machine.crossSigningStatus()
-        this.log(`Cross-signing status before: master=${statusBefore.hasMaster}, self=${statusBefore.hasSelfSigning}, user=${statusBefore.hasUserSigning}`)
-        
-        if (!statusBefore.hasMaster) {
-          this.log("Bootstrapping cross-signing...")
-          await machine.bootstrapCrossSigning(true) // true = reset/create new
-          
-          // Check status after
-          const statusAfter = await machine.crossSigningStatus()
-          this.log(`Cross-signing status after: master=${statusAfter.hasMaster}, self=${statusAfter.hasSelfSigning}, user=${statusAfter.hasUserSigning}`)
-        } else {
-          this.log("Cross-signing already set up")
-        }
-      } else {
-        this.log("Cross-signing bootstrap not available in this version")
-      }
-    } catch (err: any) {
-      // Non-fatal - E2EE still works without cross-signing
-      this.log(`Cross-signing bootstrap skipped: ${err.message || err}`)
     }
   }
 
