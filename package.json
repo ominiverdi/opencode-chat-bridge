@@ -40,9 +40,7 @@
     "@slack/bolt": "^4.1.0",
     "baileys": "^7.0.0-rc.9",
     "discord.js": "^14.25.1",
-    "@matrix-org/matrix-sdk-crypto-wasm": "^17.0.0",
-    "indexeddbshim": "^15.0.0",
-    "matrix-js-sdk": "^34.0.0",
+    "matrix-bot-sdk": "^0.7.1",
     "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {

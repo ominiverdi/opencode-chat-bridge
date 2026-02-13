@@ -3,14 +3,15 @@
  * Matrix Connector for OpenCode Chat Bridge
  * 
  * Bridges Matrix rooms to OpenCode via ACP protocol.
- * Shows activity logs (tool calls) and handles images from document library.
+ * Uses matrix-bot-sdk with native Rust crypto for E2EE support.
  * 
  * Usage:
  *   bun connectors/matrix.ts
  * 
  * Environment variables (see .env.example):
  *   MATRIX_HOMESERVER - Matrix server URL (e.g., https://matrix.org)
- *   MATRIX_ACCESS_TOKEN - Bot access token
+ *   MATRIX_ACCESS_TOKEN - Bot access token (or use PASSWORD for auto-login)
+ *   MATRIX_PASSWORD - Bot password (will login and save token)
  *   MATRIX_USER_ID - Bot user ID (e.g., @mybot:matrix.org)
  *   MATRIX_TRIGGER - Message prefix to trigger bot (default: !oc)
  */
@@ -19,29 +20,19 @@ import fs from "fs"
 import path from "path"
 import os from "os"
 
-// E2EE: Persistent IndexedDB using SQLite (must be before crypto import)
-// This replaces fake-indexeddb which was in-memory only
-import setGlobalVars from "indexeddbshim"
+// matrix-bot-sdk with native Rust crypto for E2EE
+import {
+  AutojoinRoomsMixin,
+  LogLevel,
+  LogService,
+  MatrixAuth,
+  MatrixClient,
+  MessageEvent,
+  RichConsoleLogger,
+  RustSdkCryptoStorageProvider,
+  SimpleFsStorageProvider,
+} from "matrix-bot-sdk"
 
-// E2EE: Crypto store path - SQLite databases will be stored here
-const CRYPTO_STORE_PATH = process.env.MATRIX_CRYPTO_STORE || 
-  path.join(os.homedir(), ".local", "share", "opencode-matrix-crypto")
-
-// Ensure crypto store directory exists before setting up IndexedDB
-if (!fs.existsSync(CRYPTO_STORE_PATH)) {
-  fs.mkdirSync(CRYPTO_STORE_PATH, { recursive: true })
-}
-
-// Set up IndexedDB with SQLite persistence
-// @ts-ignore - indexeddbshim types
-global.window = global
-setGlobalVars(global, {
-  checkOrigin: false,  // Disable origin checks for Node.js
-  databaseBasePath: CRYPTO_STORE_PATH,  // Store SQLite files here
-  addSQLiteExtension: true,  // Add .sqlite extension to database files
-})
-
-import * as sdk from "matrix-js-sdk"
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
 import {
@@ -52,9 +43,6 @@ import {
   sanitizeServerPaths,
 } from "../src"
 
-// E2EE: Import Rust crypto (after IndexedDB polyfill)
-import "@matrix-org/matrix-sdk-crypto-wasm"
-
 // =============================================================================
 // Configuration
 // =============================================================================
@@ -64,13 +52,17 @@ const HOMESERVER = config.matrix.homeserver
 const ACCESS_TOKEN = config.matrix.accessToken || process.env.MATRIX_ACCESS_TOKEN
 const PASSWORD = config.matrix.password || process.env.MATRIX_PASSWORD
 const USER_ID = config.matrix.userId || process.env.MATRIX_USER_ID
-const DEVICE_ID = config.matrix.deviceId || process.env.MATRIX_DEVICE_ID || "OPENCODE_BRIDGE"
 const TRIGGER = config.trigger
 const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 
-// Note: CRYPTO_STORE_PATH is defined at the top of the file for IndexedDB setup
+// Storage paths
+const STORAGE_PATH = process.env.MATRIX_STORAGE_PATH || 
+  path.join(os.homedir(), ".local", "share", "opencode-matrix-bot")
+const STATE_STORAGE_PATH = path.join(STORAGE_PATH, "bot-state.json")
+const CRYPTO_STORAGE_PATH = path.join(STORAGE_PATH, "crypto")
+const TOKEN_FILE_PATH = path.join(STORAGE_PATH, "access_token")
 
 // =============================================================================
 // Session Type
@@ -85,8 +77,7 @@ interface RoomSession extends BaseSession {
 // =============================================================================
 
 class MatrixConnector extends BaseConnector<RoomSession> {
-  private matrix: sdk.MatrixClient | null = null
-  private currentAccessToken: string | null = null
+  private matrix: MatrixClient | null = null
 
   constructor() {
     super({
@@ -104,68 +95,57 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
   async start(): Promise<void> {
     // Validate configuration
-    if (!PASSWORD && !ACCESS_TOKEN) {
-      console.error("Error: Either MATRIX_PASSWORD or MATRIX_ACCESS_TOKEN must be set")
-      console.error("Password-based login is recommended (tokens don't expire)")
-      console.error("Create a .env file with your Matrix credentials")
-      process.exit(1)
-    }
-    if (!USER_ID) {
-      console.error("Error: MATRIX_USER_ID not set")
+    if (!ACCESS_TOKEN && !PASSWORD) {
+      console.error("Error: Either MATRIX_ACCESS_TOKEN or MATRIX_PASSWORD must be set")
+      console.error("Password-based login will save the token for future use.")
       process.exit(1)
     }
 
     this.log("Starting...")
     console.log(`  Homeserver: ${HOMESERVER}`)
     console.log(`  User: ${USER_ID}`)
-    console.log(`  Device ID: ${DEVICE_ID}`)
-    console.log(`  Auth: ${PASSWORD ? "password" : "access token"}`)
-    console.log(`  E2EE: enabled (store: ${CRYPTO_STORE_PATH})`)
+    console.log(`  Storage: ${STORAGE_PATH}`)
+    console.log(`  E2EE: enabled (Rust crypto with SQLite)`)
     this.logStartup()
     await this.cleanupSessions()
 
-    // Note: Crypto store directory already created at top of file during IndexedDB setup
+    // Ensure storage directories exist
+    fs.mkdirSync(STORAGE_PATH, { recursive: true })
+    fs.mkdirSync(CRYPTO_STORAGE_PATH, { recursive: true })
 
-    // Login and create client
-    await this.login()
+    // Get access token (from config, saved file, or password login)
+    let accessToken = await this.getOrCreateAccessToken()
 
-    // Handle room messages (including decrypted ones)
-    this.matrix!.on(sdk.RoomEvent.Timeline, this.handleRoomEvent.bind(this))
-    
-    // Handle decrypted messages - re-process after decryption
-    this.matrix!.on(sdk.MatrixEventEvent.Decrypted, async (event) => {
-      const room = this.matrix!.getRoom(event.getRoomId()!)
-      await this.handleRoomEvent(event, room ?? undefined, false)
+    if (!accessToken) {
+      console.error("Error: Could not obtain access token")
+      process.exit(1)
+    }
+
+    // Set up logging (reduce noise)
+    LogService.setLogger(new RichConsoleLogger())
+    LogService.setLevel(LogLevel.INFO)
+    LogService.muteModule("Metrics")
+
+    // Create storage providers
+    const stateStorage = new SimpleFsStorageProvider(STATE_STORAGE_PATH)
+    const cryptoStorage = new RustSdkCryptoStorageProvider(CRYPTO_STORAGE_PATH)
+
+    // Create the client with E2EE support
+    this.matrix = new MatrixClient(HOMESERVER, accessToken, stateStorage, cryptoStorage)
+
+    // Auto-join rooms when invited
+    AutojoinRoomsMixin.setupOnClient(this.matrix)
+
+    // Handle decryption failures
+    this.matrix.on("room.failed_decryption", async (roomId: string, event: any, error: Error) => {
+      this.log(`[CRYPTO] Failed to decrypt in ${roomId}: ${error.message}`)
     })
 
-    // Handle sync state changes and token expiry
-    this.matrix!.on(sdk.ClientEvent.Sync, async (state: string, prevState: string | null) => {
-      if (state !== prevState) {
-        this.log(`[SYNC] ${prevState} -> ${state}`)
-      }
+    // Handle messages (already decrypted by the SDK)
+    this.matrix.on("room.message", this.handleRoomMessage.bind(this))
 
-      // Handle token expiry - re-login if we have password
-      if (state === "ERROR" && PASSWORD) {
-        this.log("Sync error detected, attempting re-login...")
-        await this.reconnect()
-      }
-    })
-
-    // Handle invites - auto-join
-    this.matrix!.on(sdk.RoomMemberEvent.Membership, async (event, member) => {
-      if (member.membership === "invite" && member.userId === USER_ID) {
-        this.log(`Invited to room: ${member.roomId}`)
-        try {
-          await this.matrix!.joinRoom(member.roomId)
-          this.log(`Joined room: ${member.roomId}`)
-        } catch (err) {
-          this.logError(`Failed to join room: ${member.roomId}`, err)
-        }
-      }
-    })
-
-    // Start syncing - get last 10 messages to initialize rooms properly
-    await this.matrix!.startClient({ initialSyncLimit: 10 })
+    // Start the client (this prepares crypto automatically)
+    await this.matrix.start()
     this.log("Started! Listening for messages...")
   }
 
@@ -174,7 +154,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     await this.disconnectAllSessions()
 
     if (this.matrix) {
-      this.matrix.stopClient()
+      this.matrix.stop()
     }
 
     this.log("Stopped.")
@@ -182,10 +162,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
   async sendMessage(roomId: string, text: string): Promise<void> {
     try {
-      await this.matrix!.sendMessage(roomId, {
-        msgtype: sdk.MsgType.Text,
-        body: text,
-      })
+      await this.matrix!.sendText(roomId, text)
     } catch (err) {
       this.logError(`Failed to send message to ${roomId}:`, err)
     }
@@ -195,150 +172,48 @@ class MatrixConnector extends BaseConnector<RoomSession> {
   // Matrix-specific: Authentication
   // ---------------------------------------------------------------------------
 
-  private async login(): Promise<void> {
+  private async getOrCreateAccessToken(): Promise<string | null> {
+    // 1. Check config/env first
+    if (ACCESS_TOKEN) {
+      this.log("Using access token from config/env")
+      return ACCESS_TOKEN
+    }
+
+    // 2. Check for saved token file
+    if (fs.existsSync(TOKEN_FILE_PATH)) {
+      const savedToken = fs.readFileSync(TOKEN_FILE_PATH, "utf-8").trim()
+      if (savedToken) {
+        this.log("Using saved access token")
+        return savedToken
+      }
+    }
+
+    // 3. Login with password and save token
     if (PASSWORD) {
-      // Password-based login - generates fresh access token
-      this.log("Logging in with password...")
-
-      // Create temporary client for login
-      const tempClient = sdk.createClient({ baseUrl: HOMESERVER })
-
-      try {
-        // Extract username from full user ID (@user:server.org -> user)
-        const username = USER_ID!.split(":")[0].replace("@", "")
-
-        // Try login with localpart first, then full user ID if that fails
-        let loginResponse
-        try {
-          loginResponse = await tempClient.login("m.login.password", {
-            user: username,
-            password: PASSWORD,
-            device_id: DEVICE_ID,
-            initial_device_display_name: "OpenCode Chat Bridge",
-          })
-        } catch (err: any) {
-          if (err.httpStatus === 403) {
-            console.log("  Trying with full user ID...")
-            loginResponse = await tempClient.login("m.login.password", {
-              user: USER_ID!,
-              password: PASSWORD,
-              device_id: DEVICE_ID,
-              initial_device_display_name: "OpenCode Chat Bridge",
-            })
-          } else {
-            throw err
-          }
-        }
-
-        this.currentAccessToken = loginResponse.access_token
-        console.log(`  Login successful! Device: ${loginResponse.device_id}`)
-
-        // Create the actual client with the new token and crypto support
-        this.matrix = sdk.createClient({
-          baseUrl: HOMESERVER,
-          accessToken: this.currentAccessToken!,
-          userId: USER_ID!,
-          deviceId: loginResponse.device_id,
-        })
-
-        // Initialize E2EE with Rust crypto
-        await this.initializeCrypto()
-      } catch (err: any) {
-        this.logError("Password login failed:", err.message || err)
-        throw err
-      }
-    } else {
-      // Access token login (may expire)
-      this.log("Using access token (may expire)...")
-      this.currentAccessToken = ACCESS_TOKEN!
-
-      this.matrix = sdk.createClient({
-        baseUrl: HOMESERVER,
-        accessToken: ACCESS_TOKEN,
-        userId: USER_ID,
-        deviceId: DEVICE_ID,
-      })
-
-      // Initialize E2EE with Rust crypto
-      await this.initializeCrypto()
+      return await this.loginWithPassword()
     }
+
+    return null
   }
 
-  private async initializeCrypto(): Promise<void> {
-    if (!this.matrix) return
+  private async loginWithPassword(): Promise<string | null> {
+    this.log("Logging in with password...")
 
     try {
-      this.log("Initializing E2EE (Rust crypto)...")
+      const auth = new MatrixAuth(HOMESERVER)
+      const username = USER_ID!.split(":")[0].replace("@", "")
       
-      // Initialize Rust crypto with persistent store
-      await this.matrix.initRustCrypto({
-        storePath: CRYPTO_STORE_PATH,
-        storePassphrase: "opencode-matrix-bridge",
-      })
+      const client = await auth.passwordLogin(username, PASSWORD!, "OpenCode Chat Bridge")
+      const accessToken = client.accessToken
 
-      // Set up crypto event handlers
-      this.matrix.on(sdk.CryptoEvent.VerificationRequestReceived, (request) => {
-        this.log(`Verification request from: ${request.otherUserId}`)
-        // Auto-accept verification for simplicity (can be made interactive)
-      })
+      // Save token for future use
+      fs.writeFileSync(TOKEN_FILE_PATH, accessToken)
+      this.log(`Login successful! Token saved to ${TOKEN_FILE_PATH}`)
 
-      this.log("E2EE initialized successfully!")
+      return accessToken
     } catch (err: any) {
-      this.logError("Failed to initialize E2EE:", err.message || err)
-      this.log("Continuing without E2EE support - encrypted messages won't be readable")
-    }
-  }
-
-  private async reconnect(): Promise<void> {
-    if (!PASSWORD) {
-      this.logError("Cannot reconnect without password - token expired")
-      return
-    }
-
-    this.log("Reconnecting...")
-
-    try {
-      // Stop current client
-      if (this.matrix) {
-        this.matrix.stopClient()
-      }
-
-      // Re-login
-      await this.login()
-
-      // Re-attach event handlers
-      this.matrix!.on(sdk.RoomEvent.Timeline, this.handleRoomEvent.bind(this))
-      this.matrix!.on(sdk.MatrixEventEvent.Decrypted, async (event) => {
-        const room = this.matrix!.getRoom(event.getRoomId()!)
-        await this.handleRoomEvent(event, room ?? undefined, false)
-      })
-      this.matrix!.on(sdk.ClientEvent.Sync, async (state: string, prevState: string | null) => {
-        if (state !== prevState) {
-          this.log(`[SYNC] ${prevState} -> ${state}`)
-        }
-        if (state === "ERROR" && PASSWORD) {
-          this.log("Sync error detected, attempting re-login...")
-          await this.reconnect()
-        }
-      })
-      this.matrix!.on(sdk.RoomMemberEvent.Membership, async (event, member) => {
-        if (member.membership === "invite" && member.userId === USER_ID) {
-          try {
-            await this.matrix!.joinRoom(member.roomId)
-            this.log(`Joined room: ${member.roomId}`)
-          } catch (err) {
-            this.logError(`Failed to join room: ${member.roomId}`, err)
-          }
-        }
-      })
-
-      // Restart client
-      await this.matrix!.startClient({ initialSyncLimit: 10 })
-      this.log("Reconnected successfully!")
-    } catch (err) {
-      this.logError("Reconnection failed:", err)
-      // Wait and try again
-      setTimeout(() => this.reconnect(), 30000)
+      this.logError("Password login failed:", err.message || err)
+      return null
     }
   }
 
@@ -346,44 +221,24 @@ class MatrixConnector extends BaseConnector<RoomSession> {
   // Matrix-specific: Event handling
   // ---------------------------------------------------------------------------
 
-  private async handleRoomEvent(
-    event: sdk.MatrixEvent,
-    room: sdk.Room | undefined,
-    toStartOfTimeline: boolean | undefined
-  ): Promise<void> {
-    // Ignore old messages
-    if (toStartOfTimeline) return
-    
-    // Handle encrypted messages - wait for decryption
-    if (event.isEncrypted()) {
-      // Check if already decrypted
-      if (event.isDecryptionFailure()) {
-        this.log(`[CRYPTO] Failed to decrypt message from ${event.getSender()}`)
-        return
-      }
-      // If still being decrypted, the event will be re-emitted when done
-      if (event.isBeingDecrypted()) {
-        return
-      }
-    }
-    
-    if (event.getType() !== "m.room.message") return
+  private async handleRoomMessage(roomId: string, event: any): Promise<void> {
+    const message = new MessageEvent(event)
 
-    const content = event.getContent()
-    if (content.msgtype !== "m.text") return
+    // Ignore non-text messages
+    if (message.messageType !== "m.text") return
 
     // Ignore our own messages
-    const sender = event.getSender()
-    if (sender === USER_ID) return
+    const myUserId = await this.matrix!.getUserId()
+    if (message.sender === myUserId) return
 
-    const body = (content.body || "").trim()
-    const roomId = event.getRoomId()
-    if (!roomId) return
+    const body = message.textBody.trim()
+    if (!body) return
 
-    this.log(`[MSG] ${sender}: ${body}`)
+    this.log(`[MSG] ${message.sender}: ${body}`)
 
-    // Check if this is a DM (direct message) room - use the room parameter passed to handler
-    const isDM = room && room.getJoinedMemberCount() === 2
+    // Check if this is a DM (direct message) room
+    const members = await this.matrix!.getJoinedRoomMembers(roomId)
+    const isDM = members.length === 2
 
     // Check trigger
     let query = ""
@@ -391,8 +246,8 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       query = body.slice(TRIGGER.length + 1).trim()
     } else if (body.startsWith(TRIGGER)) {
       query = body.slice(TRIGGER.length).trim()
-    } else if (body.includes(USER_ID!)) {
-      query = body.replace(USER_ID!, "").trim()
+    } else if (body.includes(myUserId)) {
+      query = body.replace(myUserId, "").trim()
     } else if (body.match(/^@?bot[:\s]/i)) {
       // Match "bot:" or "@bot:" at start
       query = body.replace(/^@?bot[:\s]*/i, "").trim()
@@ -416,10 +271,10 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     }
 
     // Rate limiting
-    if (!this.checkRateLimit(sender!)) return
+    if (!this.checkRateLimit(message.sender)) return
 
-    this.log(`[${room?.name || roomId}] ${sender}: ${query}`)
-    await this.processQuery(roomId, sender!, query)
+    this.log(`[QUERY] ${roomId}: ${query}`)
+    await this.processQuery(roomId, message.sender, query)
   }
 
   // ---------------------------------------------------------------------------
@@ -534,10 +389,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
   private async sendNotice(roomId: string, text: string): Promise<void> {
     try {
-      await this.matrix!.sendMessage(roomId, {
-        msgtype: sdk.MsgType.Notice,
-        body: text,
-      })
+      await this.matrix!.sendNotice(roomId, text)
     } catch (err) {
       this.logError(`Failed to send notice to ${roomId}:`, err)
     }
@@ -547,16 +399,10 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     try {
       // Decode base64 and upload to Matrix
       const buffer = Buffer.from(image.data, "base64")
-
-      const uploadResponse = await this.matrix!.uploadContent(buffer, {
-        type: image.mimeType,
-        name: image.alt || "image.png",
-      })
-
-      const mxcUrl = uploadResponse.content_uri
+      const mxcUrl = await this.matrix!.uploadContent(buffer, image.mimeType, image.alt || "image.png")
 
       await this.matrix!.sendMessage(roomId, {
-        msgtype: sdk.MsgType.Image,
+        msgtype: "m.image",
         body: image.alt || "Image",
         url: mxcUrl,
         info: {
@@ -581,16 +427,10 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
       const buffer = fs.readFileSync(filePath)
       const fileName = path.basename(filePath)
-
-      const uploadResponse = await this.matrix!.uploadContent(buffer, {
-        type: "image/png",
-        name: fileName,
-      })
-
-      const mxcUrl = uploadResponse.content_uri
+      const mxcUrl = await this.matrix!.uploadContent(buffer, "image/png", fileName)
 
       await this.matrix!.sendMessage(roomId, {
-        msgtype: sdk.MsgType.Image,
+        msgtype: "m.image",
         body: fileName,
         url: mxcUrl,
         info: {
