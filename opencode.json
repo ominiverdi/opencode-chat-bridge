@@ -4,10 +4,7 @@
   "model": "google/gemini-2.5-flash",
   "default_agent": "chat-bridge",
   
-  "plugin": [
-    "opencode-antigravity-auth@beta",
-    "/home/ominiverdi/github/opencode-antigravity-img"
-  ],
+  "plugin": [],
   
   "mode": {
     "build": { "prompt": "" },
@@ -46,8 +43,6 @@
         "question": "allow",
         
         "chrome-devtools_*": "deny",
-        "generate_image": "allow",
-        "image_quota": "allow",
         
         "time_get_current_time": "allow",
         "time_convert_time": "allow",
