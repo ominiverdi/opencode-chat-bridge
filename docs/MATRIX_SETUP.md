@@ -6,6 +6,7 @@ This guide walks through setting up the Matrix connector for OpenCode Chat Bridg
 
 - A Matrix account for your bot
 - `bun` runtime installed
+- **Node.js 22+** (required for native crypto bindings)
 - OpenCode installed and authenticated (`opencode --version`)
 
 ## Step 1: Create Bot Account
@@ -64,10 +65,17 @@ Add credentials to your `.env` file:
 
 ```bash
 MATRIX_HOMESERVER=https://matrix.org
-MATRIX_ACCESS_TOKEN=syt_xxxxx...
 MATRIX_USER_ID=@my-opencode-bot:matrix.org
 MATRIX_TRIGGER=!oc
+
+# Option A: Password login (recommended - handles token refresh)
+MATRIX_PASSWORD=your-bot-password
+
+# Option B: Access token (manual - may expire)
+# MATRIX_ACCESS_TOKEN=syt_xxxxx...
 ```
+
+**Recommended:** Use password login. The bot will automatically obtain and cache an access token.
 
 ## Step 4: Run the Connector
 
@@ -140,14 +148,20 @@ Each room has its own conversation session. Use `/clear` to reset.
 
 ## Security Considerations
 
-### Use Unencrypted Rooms
+### E2EE Support
 
-E2EE (end-to-end encryption) requires additional setup:
-- Device verification
-- Key storage
-- Cross-signing
+The bot supports end-to-end encrypted rooms using native Rust crypto:
 
-For simplicity, use unencrypted rooms for the bot.
+- **Automatic encryption/decryption** - messages in encrypted rooms just work
+- **Persistent key storage** - crypto keys survive restarts (SQLite-backed)
+- **Password login recommended** - tokens are cached automatically
+
+**Storage location:** `~/.local/share/opencode-matrix-bot/`
+- `bot-state.json` - sync state
+- `crypto/` - encryption keys (back this up!)
+- `access_token` - cached login token
+
+**"Unverified device" warning:** This is cosmetic. E2EE works correctly. To remove it, verify the bot's device manually from Element (Settings > Security > Sessions).
 
 ### Permission Isolation
 
@@ -174,15 +188,24 @@ After=network.target
 [Service]
 Type=simple
 User=youruser
+Group=youruser
 WorkingDirectory=/home/youruser/opencode-chat-bridge
-EnvironmentFile=/home/youruser/opencode-chat-bridge/.env
-ExecStart=/usr/bin/bun connectors/matrix.ts
+Environment=PATH=/home/youruser/.bun/bin:/home/youruser/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/youruser
+ExecStart=/home/youruser/.bun/bin/bun connectors/matrix.ts
 Restart=always
 RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=opencode-matrix
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+**Note:** Adjust paths for your bun and opencode installations.
 
 ### Start the Service
 
