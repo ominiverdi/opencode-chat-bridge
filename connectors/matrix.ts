@@ -146,6 +146,10 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
     // Start the client (this prepares crypto automatically)
     await this.matrix.start()
+    
+    // Bootstrap cross-signing to verify the device (removes "unverified device" warning)
+    await this.bootstrapCrossSigning()
+    
     this.log("Started! Listening for messages...")
   }
 
@@ -214,6 +218,25 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     } catch (err: any) {
       this.logError("Password login failed:", err.message || err)
       return null
+    }
+  }
+
+  private async bootstrapCrossSigning(): Promise<void> {
+    // Bootstrap cross-signing to mark the device as verified
+    // This removes the "Encrypted by a device not verified by its owner" warning
+    try {
+      // Access the private engine.machine via runtime (TypeScript private isn't enforced)
+      const crypto = this.matrix!.crypto as any
+      if (crypto?.engine?.machine?.bootstrapCrossSigning) {
+        this.log("Bootstrapping cross-signing...")
+        await crypto.engine.machine.bootstrapCrossSigning(false)
+        this.log("Cross-signing bootstrapped successfully!")
+      } else {
+        this.log("Cross-signing bootstrap not available in this version")
+      }
+    } catch (err: any) {
+      // Non-fatal - E2EE still works without cross-signing
+      this.log(`Cross-signing bootstrap skipped: ${err.message || err}`)
     }
   }
 
