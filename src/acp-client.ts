@@ -4,6 +4,33 @@
 
 import { spawn, type ChildProcess } from "child_process"
 import { EventEmitter } from "events"
+import { existsSync } from "fs"
+import { homedir } from "os"
+import { join } from "path"
+
+// Find the opencode executable
+function findOpencode(): string {
+  // Check environment variable first
+  if (process.env.OPENCODE_PATH && existsSync(process.env.OPENCODE_PATH)) {
+    return process.env.OPENCODE_PATH
+  }
+  
+  // Common installation paths
+  const paths = [
+    join(homedir(), ".opencode", "bin", "opencode"),
+    "/usr/local/bin/opencode",
+    "/usr/bin/opencode",
+  ]
+  
+  for (const p of paths) {
+    if (existsSync(p)) {
+      return p
+    }
+  }
+  
+  // Fall back to PATH lookup
+  return "opencode"
+}
 
 export interface ACPClientOptions {
   cwd?: string
@@ -57,7 +84,10 @@ export class ACPClient extends EventEmitter {
   }
   
   async connect(): Promise<void> {
-    this.acp = spawn("opencode", ["acp"], {
+    const opencodePath = findOpencode()
+    console.log(`[ACP] Using opencode at: ${opencodePath}`)
+    
+    this.acp = spawn(opencodePath, ["acp"], {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: this.cwd,
     })
