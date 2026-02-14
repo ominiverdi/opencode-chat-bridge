@@ -489,6 +489,26 @@ export class ACPClient extends EventEmitter {
     else if (tool.includes("google_search")) {
       description = `Searching Google: ${args.query || "..."}`
     }
+    // Bash/shell commands
+    else if (tool === "bash" || tool.includes("bash")) {
+      const cmd = args.command || args.cmd || ""
+      const shortCmd = cmd.length > 60 ? cmd.slice(0, 60) + "..." : cmd
+      description = shortCmd ? `$ ${shortCmd}` : "Running command"
+    }
+    // File operations
+    else if (tool === "read" || tool.includes("read")) {
+      description = `Reading: ${args.filePath || args.path || args.file || "file"}`
+    }
+    else if (tool === "glob" || tool.includes("glob")) {
+      description = `Finding: ${args.pattern || "files"}`
+    }
+    else if (tool === "grep" || tool.includes("grep")) {
+      description = `Searching: ${args.pattern || "pattern"}`
+    }
+    // Skills
+    else if (tool === "skill" || tool.includes("skill")) {
+      description = `Loading skill: ${args.name || "..."}`
+    }
     // Default - just use the tool name
     else {
       description = `Executing`
