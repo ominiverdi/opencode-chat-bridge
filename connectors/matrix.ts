@@ -357,6 +357,16 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
         
+        // Only show results for tools in streamTools config
+        const toolName = update.toolName || ""
+        const streamTools = config.streamTools || ["bash"]
+        const shouldShow = streamTools.some(t => toolName.includes(t))
+        
+        if (!shouldShow) {
+          this.log(`[RESULT] Skipping ${toolName} result (not in streamTools)`)
+          return
+        }
+        
         // Truncate very long outputs
         const maxLen = 2000
         const result = update.toolResult.length > maxLen 
