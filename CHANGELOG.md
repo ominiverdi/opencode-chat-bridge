@@ -8,26 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **HTML message formatting for Matrix** - New  config option converts
-  markdown responses to HTML using , sending both  (HTML)
-  and  (plain text fallback) per the Matrix spec. Tables, bold, lists, and
+- **HTML message formatting for Matrix** - New `formatHtml` config option converts
+  markdown responses to HTML using `marked`, sending both `formatted_body` (HTML)
+  and `body` (plain text fallback) per the Matrix spec. Tables, bold, lists, and
   code blocks render natively in Matrix clients. Disabled by default.
-- **MCP server environment variables** - MCP servers defined in  can
-  now include an  block for passing configuration (API URLs, tokens,
+- **MCP server environment variables** - MCP servers defined in `opencode.json` can
+  now include an `env` block for passing configuration (API URLs, tokens,
   feature flags) to the server process.
 - **Streaming tool output** - Tool output now streams in real-time during execution.
   Requires [opencode PR #13589](https://github.com/anomalyco/opencode/pull/13589).
-  - Enabled for ALL tools by default (future MCP plugins with streaming will work automatically)
-  - Chat-bridge handles `tool_output_delta` events from ACP
-  - Sends only new content (deltas), not accumulated output
+  - Configurable via `streamTools` in `chat-bridge.json` (default: `["bash"]`)
+  - Only tools in the list have output streamed to chat
+  - Properly computes deltas from cumulative output (fixes accumulation bug)
   - Skips final tool result if already streamed
+- **OpenCode commands forwarding** - Commands like `/init`, `/compact`, `/review`
+  are discovered from OpenCode via ACP and shown in `/help`. When invoked, they
+  are forwarded directly to OpenCode instead of being handled by the bridge.
+- **Skills infrastructure** - The `.opencode/skills/` directory is symlinked to
+  session directories, allowing custom skills to be loaded via the `skill` tool.
+  Skills provide domain-specific instructions (e.g., weather formatting, personas).
 - **Permission request handling** - Properly handles OpenCode permission requests
-  - Auto-rejects with clear message (e.g., "Permission denied: external_directory (/etc/passwd)")
+  - Auto-rejects with clear message (e.g., "Permission denied: write")
   - Prevents hanging when tools require elevated permissions
   - Shows both the permission denial and the tool error to users
 
 ### Changed
-- Added  as a dependency for markdown-to-HTML conversion
+- **Generic tool activity formatting** - Tool activity messages now show
+  `key=value, key=value [toolname]` for ANY tool, removing hardcoded formatting.
+  This ensures new MCP tools display useful context automatically.
+- Added `marked` as a dependency for markdown-to-HTML conversion
 
 ## [0.4.0] - 2026-02-13
 
