@@ -340,6 +340,34 @@ export class ACPClient extends EventEmitter {
             message: "Done",
           })
         }
+        
+        // Handle failed status (blocked or error)
+        if (update.status === "failed") {
+          let errorMsg = "Tool execution failed"
+          if (update.content && Array.isArray(update.content)) {
+            for (const item of update.content) {
+              if (item.content?.type === "text") {
+                errorMsg = item.content.text
+              }
+            }
+          } else if (update.rawOutput?.error) {
+            errorMsg = update.rawOutput.error
+          }
+          
+          this.emit("update", {
+            type: "tool_result",
+            toolName: toolNameUpdate,
+            toolCallId: update.toolCallId,
+            toolResult: `[Error] ${errorMsg}`,
+          })
+          
+          // Emit activity end with error
+          this.emit("activity", {
+            type: "tool_end",
+            tool: toolNameUpdate,
+            message: "Failed",
+          })
+        }
         break
     }
   }
