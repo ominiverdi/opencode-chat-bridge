@@ -288,10 +288,12 @@ export class ACPClient extends EventEmitter {
             this.emit("update", {
               type: "tool_output_delta",
               toolName: toolNameUpdate,
+              toolCallId: update.toolCallId,
               partialOutput: update.rawOutput.output,
             })
             this.emit("tool_output_delta", {
               tool: toolNameUpdate,
+              toolCallId: update.toolCallId,
               output: update.rawOutput.output,
             })
           }
@@ -323,6 +325,7 @@ export class ACPClient extends EventEmitter {
             this.emit("update", {
               type: "tool_result",
               toolName: toolNameUpdate,
+              toolCallId: update.toolCallId,
               toolResult: result,
             })
             
