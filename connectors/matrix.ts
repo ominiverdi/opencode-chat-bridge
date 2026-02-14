@@ -401,11 +401,18 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       await this.sendImageFromBase64(roomId, image)
     }
 
+    // Handle permission rejections
+    const permissionHandler = async (event: { permission: string; path: string; message: string }) => {
+      this.log(`[PERMISSION] Rejected: ${event.permission} (${event.path})`)
+      await this.sendNotice(roomId, `> Permission denied: ${event.permission} (${event.path})`)
+    }
+
     // Set up listeners
     client.on("activity", activityHandler)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
     client.on("image", imageHandler)
+    client.on("permission_rejected", permissionHandler)
 
     try {
       await client.prompt(query)
@@ -452,6 +459,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)
+      client.off("permission_rejected", permissionHandler)
     }
   }
 
