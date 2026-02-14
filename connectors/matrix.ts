@@ -385,18 +385,22 @@ class MatrixConnector extends BaseConnector<RoomSession> {
         }
       }
       
-      // Handle streaming partial output during tool execution (all tools)
+      // Handle streaming partial output during tool execution
+      // Only stream for tools in config.streamTools (default: ["bash"])
       if (update.type === "tool_output_delta" && update.partialOutput) {
-        const output = update.partialOutput.trim()
-        if (output) {
-          // Use content hash to prevent ANY duplicate content
-          const contentHash = output.slice(0, 150)
-          if (!sentToolOutputs.has(contentHash)) {
-            sentToolOutputs.add(contentHash)
-            await this.sendMessage(roomId, output)
-            this.log(`[STREAM] Sent output (${output.length} chars)`)
-          } else {
-            this.log(`[STREAM] Skipped duplicate content`)
+        const toolName = update.toolName || ""
+        const streamTools = config.streamTools || ["bash"]
+        const shouldStream = streamTools.some(t => toolName.includes(t))
+        
+        if (shouldStream) {
+          const output = update.partialOutput.trim()
+          if (output) {
+            const contentHash = output.slice(0, 150)
+            if (!sentToolOutputs.has(contentHash)) {
+              sentToolOutputs.add(contentHash)
+              await this.sendMessage(roomId, output)
+              this.log(`[STREAM] Sent ${toolName} output (${output.length} chars)`)
+            }
           }
         }
       }

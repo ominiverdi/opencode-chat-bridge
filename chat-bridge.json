@@ -2,6 +2,7 @@
   "botName": "oc",
   "trigger": "!oc",
   "rateLimitSeconds": 5,
+  "streamTools": ["bash"],
   "sessionStorePath": "./.opencode/chat-sessions.json",
   "defaultAgent": null,
   "modes": {
