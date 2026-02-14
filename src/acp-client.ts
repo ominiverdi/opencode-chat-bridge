@@ -239,8 +239,10 @@ export class ACPClient extends EventEmitter {
     const params = msg.params
     const toolCall = params.toolCall || {}
     const title = toolCall.title || "unknown"
-    const locations = toolCall.locations || []
-    const path = locations[0]?.path || "unknown path"
+    const rawInput = toolCall.rawInput || {}
+    // Path can be in rawInput.filepath, rawInput.filePath, or locations
+    const path = rawInput.filepath || rawInput.filePath || rawInput.path || 
+                 toolCall.locations?.[0]?.path || "unknown path"
     
     console.error(`[ACP] Permission requested: ${title} (${path}) - auto-rejecting`)
     
