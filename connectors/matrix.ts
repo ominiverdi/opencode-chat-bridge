@@ -359,35 +359,36 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
         
-        // Stream results immediately (if not already streamed during execution)
+        // Check if we already streamed content for this tool
         const toolName = update.toolName || ""
         const toolKey = `${toolName}:${update.toolCallId || "default"}`
         const alreadyStreamedLength = streamedOutputLengths.get(toolKey) || 0
         
-        // Skip if we already streamed all or most of the content
-        if (alreadyStreamedLength > 0 && alreadyStreamedLength >= update.toolResult.length * 0.9) {
-          this.log(`[STREAM] Skipping final result - already streamed (${alreadyStreamedLength}/${update.toolResult.length} chars)`)
+        // Skip final result entirely if we streamed ANY content during execution
+        // This prevents duplication since streaming already showed the output
+        if (alreadyStreamedLength > 0) {
+          this.log(`[STREAM] Skipping final result - already streamed ${alreadyStreamedLength} chars`)
+          return
+        }
+        
+        // No streaming occurred - send the final result
+        const maxLen = 2000
+        const result = update.toolResult.length > maxLen 
+          ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
+          : update.toolResult
+        
+        // Skip empty results
+        if (!result || result.trim().length === 0) {
+          this.log(`[STREAM] Skipping empty tool result`)
         } else {
-          // Truncate very long outputs
-          const maxLen = 2000
-          const result = update.toolResult.length > maxLen 
-            ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
-            : update.toolResult
-          
-          // Skip empty results
-          if (!result || result.trim().length === 0) {
-            this.log(`[STREAM] Skipping empty tool result`)
-          } else {
-            // Create a hash to track what we've sent
-            const outputHash = result.slice(0, 100)
-            if (!sentToolOutputs.has(outputHash)) {
-              sentToolOutputs.add(outputHash)
-              // Send immediately as a separate message
-              try {
-                await this.sendMessage(roomId, result)
-              } catch (err) {
-                this.log(`[STREAM] Error sending tool result: ${err}`)
-              }
+          // Create a hash to track what we've sent
+          const outputHash = result.slice(0, 100)
+          if (!sentToolOutputs.has(outputHash)) {
+            sentToolOutputs.add(outputHash)
+            try {
+              await this.sendMessage(roomId, result)
+            } catch (err) {
+              this.log(`[STREAM] Error sending tool result: ${err}`)
             }
           }
         }

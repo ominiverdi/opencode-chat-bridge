@@ -260,23 +260,21 @@ export class ACPClient extends EventEmitter {
                  rawInput.directory || rawInput.dir ||
                  toolCall.locations?.[0]?.path ||
                  params.path || params.directory ||
-                 // For external_directory, try to extract from title or description
-                 (title.includes("external_directory") && rawInput.command 
-                   ? `(command: ${rawInput.command.slice(0, 50)}...)` 
-                   : null) ||
-                 // Last resort: stringify rawInput to see what's there
+                 // Last resort: stringify rawInput if not empty
                  (Object.keys(rawInput).length > 0 
                    ? JSON.stringify(rawInput).slice(0, 100) 
-                   : "unknown path")
+                   : null)
     
-    console.error(`[ACP] Permission requested: ${title} (${path}) - auto-rejecting`)
-    console.error(`[ACP] Full toolCall:`, JSON.stringify(toolCall, null, 2).slice(0, 500))
+    // Format message - if no path available, just show the permission type
+    const displayPath = path || title
+    
+    console.error(`[ACP] Permission requested: ${title} - auto-rejecting`)
     
     // Emit an event so the connector can show the user what happened
     this.emit("permission_rejected", {
       permission: title,
-      path: path,
-      message: `Permission denied: ${title} (${path})`,
+      path: displayPath,
+      message: path ? `Permission denied: ${title} (${path})` : `Permission denied: ${title}`,
     })
     
     // Send rejection response
