@@ -336,10 +336,8 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
     
-    // Track what we've already sent to avoid duplication
+    // Track what we've already sent to avoid duplication (by content hash)
     const sentToolOutputs = new Set<string>()
-    // Track streamed output length per tool call to send only deltas
-    const streamedOutputLengths = new Map<string, number>()
 
     // Activity events - show what the AI is doing
     const activityHandler = async (activity: ActivityEvent) => {
@@ -359,58 +357,46 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
         
-        // Check if we already streamed content for this tool
-        const toolName = update.toolName || ""
-        const toolKey = `${toolName}:${update.toolCallId || "default"}`
-        const alreadyStreamedLength = streamedOutputLengths.get(toolKey) || 0
-        
-        // Skip final result entirely if we streamed ANY content during execution
-        // This prevents duplication since streaming already showed the output
-        if (alreadyStreamedLength > 0) {
-          this.log(`[STREAM] Skipping final result - already streamed ${alreadyStreamedLength} chars`)
-          return
-        }
-        
-        // No streaming occurred - send the final result
+        // Truncate very long outputs
         const maxLen = 2000
         const result = update.toolResult.length > maxLen 
           ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
           : update.toolResult
         
         // Skip empty results
-        if (!result || result.trim().length === 0) {
-          this.log(`[STREAM] Skipping empty tool result`)
-        } else {
-          // Create a hash to track what we've sent
-          const outputHash = result.slice(0, 100)
-          if (!sentToolOutputs.has(outputHash)) {
-            sentToolOutputs.add(outputHash)
-            try {
-              await this.sendMessage(roomId, result)
-            } catch (err) {
-              this.log(`[STREAM] Error sending tool result: ${err}`)
-            }
-          }
+        const trimmed = result.trim()
+        if (!trimmed) {
+          this.log(`[RESULT] Skipping empty tool result`)
+          return
+        }
+        
+        // Use content hash to prevent ANY duplicate content
+        const contentHash = trimmed.slice(0, 150)
+        if (sentToolOutputs.has(contentHash)) {
+          this.log(`[RESULT] Skipping duplicate content`)
+          return
+        }
+        
+        sentToolOutputs.add(contentHash)
+        try {
+          await this.sendMessage(roomId, trimmed)
+        } catch (err) {
+          this.log(`[RESULT] Error sending: ${err}`)
         }
       }
       
       // Handle streaming partial output during tool execution (all tools)
       if (update.type === "tool_output_delta" && update.partialOutput) {
-        const toolName = update.toolName || ""
-        const fullOutput = update.partialOutput
-        const toolKey = `${toolName}:${update.toolCallId || "default"}`
-        const lastSentLength = streamedOutputLengths.get(toolKey) || 0
-        
-        // Only send the new delta (content we haven't sent yet)
-        if (fullOutput.length > lastSentLength) {
-          const delta = fullOutput.slice(lastSentLength)
-          const trimmedDelta = delta.trim()
-          if (trimmedDelta) {
-            streamedOutputLengths.set(toolKey, fullOutput.length)
-            // Also track in sentToolOutputs to prevent duplicate in final result
-            sentToolOutputs.add(trimmedDelta.slice(0, 100))
-            await this.sendMessage(roomId, trimmedDelta)
-            this.log(`[STREAM] Sent delta (${delta.length} chars, total: ${fullOutput.length})`)
+        const output = update.partialOutput.trim()
+        if (output) {
+          // Use content hash to prevent ANY duplicate content
+          const contentHash = output.slice(0, 150)
+          if (!sentToolOutputs.has(contentHash)) {
+            sentToolOutputs.add(contentHash)
+            await this.sendMessage(roomId, output)
+            this.log(`[STREAM] Sent output (${output.length} chars)`)
+          } else {
+            this.log(`[STREAM] Skipped duplicate content`)
           }
         }
       }
