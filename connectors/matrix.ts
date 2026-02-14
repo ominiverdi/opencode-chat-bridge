@@ -309,11 +309,11 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
     
-    // Capture interesting tool results to include in response
-    const capturedToolResults: Array<{ tool: string; result: string }> = []
+    // Tools whose output should be streamed immediately
+    const STREAM_OUTPUT_TOOLS = ["bash", "read", "web-search_full-web-search", "web-search_get-single-web-page-content"]
     
-    // Tools whose output should be included in the response
-    const INCLUDE_OUTPUT_TOOLS = ["bash", "read", "web-search_full-web-search", "web-search_get-single-web-page-content"]
+    // Track what we've already sent to avoid duplication
+    const sentToolOutputs = new Set<string>()
 
     // Activity events - show what the AI is doing
     const activityHandler = async (activity: ActivityEvent) => {
@@ -328,20 +328,27 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       responseBuffer += text
     }
 
-    // Capture tool results for image markers AND interesting outputs
-    const updateHandler = (update: any) => {
+    // Capture tool results for image markers AND stream interesting outputs immediately
+    const updateHandler = async (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
         
-        // Capture results from interesting tools
+        // Stream results from interesting tools immediately
         const toolName = update.toolName || ""
-        if (INCLUDE_OUTPUT_TOOLS.some(t => toolName.includes(t))) {
+        if (STREAM_OUTPUT_TOOLS.some(t => toolName.includes(t))) {
           // Truncate very long outputs
           const maxLen = 2000
           const result = update.toolResult.length > maxLen 
             ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
             : update.toolResult
-          capturedToolResults.push({ tool: toolName, result })
+          
+          // Create a hash to track what we've sent
+          const outputHash = result.slice(0, 100)
+          if (!sentToolOutputs.has(outputHash)) {
+            sentToolOutputs.add(outputHash)
+            // Send immediately as a separate message
+            await this.sendMessage(roomId, result)
+          }
         }
       }
     }
@@ -382,35 +389,18 @@ class MatrixConnector extends BaseConnector<RoomSession> {
         }
       }
 
-      // Clean response and send
+      // Clean response and send (tool outputs were already streamed)
       const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
       
-      // Check if we should include tool outputs that the model didn't echo
-      let finalResponse = cleanResponse
-      
-      if (capturedToolResults.length > 0) {
-        // Check if model's response already includes the tool output
-        // (to avoid duplication)
-        const toolOutputs: string[] = []
-        for (const { tool, result } of capturedToolResults) {
-          // Only include if the result content isn't already in the response
-          const resultPreview = result.slice(0, 100)
-          if (!cleanResponse.includes(resultPreview.slice(0, 50))) {
-            // Format tool output
-            const toolLabel = tool.replace(/_/g, " ").replace("web-search ", "")
-            toolOutputs.push(`[${toolLabel} output]\n${result}`)
-          }
-        }
+      if (cleanResponse) {
+        // Check if the model's response is just repeating what we already sent
+        const responsePreview = cleanResponse.slice(0, 100)
+        const alreadySent = sentToolOutputs.has(responsePreview)
         
-        if (toolOutputs.length > 0) {
-          // Prepend tool outputs to the response
-          finalResponse = toolOutputs.join("\n\n") + "\n\n" + cleanResponse
+        if (!alreadySent) {
+          session.outputChars += cleanResponse.length
+          await this.sendMessage(roomId, cleanResponse)
         }
-      }
-      
-      if (finalResponse) {
-        session.outputChars += finalResponse.length
-        await this.sendMessage(roomId, finalResponse)
       }
     } catch (err) {
       this.logError("Error processing query:", err)
