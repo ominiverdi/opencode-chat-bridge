@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MCP server environment variables** - MCP servers defined in  can
   now include an  block for passing configuration (API URLs, tokens,
   feature flags) to the server process.
-- **Streaming bash output** - Tool output now streams in real-time during execution.
+- **Streaming tool output** - Tool output now streams in real-time during execution.
   Requires [opencode PR #13589](https://github.com/anomalyco/opencode/pull/13589).
+  - Enabled for ALL tools by default (future MCP plugins with streaming will work automatically)
   - Chat-bridge handles `tool_output_delta` events from ACP
   - Sends only new content (deltas), not accumulated output
   - Skips final tool result if already streamed
