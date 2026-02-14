@@ -206,7 +206,7 @@ export class ACPClient extends EventEmitter {
   private handleMessage(msg: any): void {
     // Debug: log ALL incoming messages
     if (msg.method) {
-      console.error(`[ACP MSG] method=${msg.method} id=${msg.id || 'none'}`)
+      console.error(`[ACP MSG] method=${msg.method} id=${msg.id || 'none'} full:`, JSON.stringify(msg).slice(0, 500))
     }
     
     // Handle notifications
@@ -216,7 +216,7 @@ export class ACPClient extends EventEmitter {
     }
     
     // Handle permission requests - auto-reject with message
-    if (msg.method === "session/requestPermission") {
+    if (msg.method === "session/request_permission") {
       this.handlePermissionRequest(msg)
       return
     }
