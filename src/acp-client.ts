@@ -282,6 +282,19 @@ export class ACPClient extends EventEmitter {
             description: activity.description,
             details: toolArgsUpdate,
           })
+          
+          // Stream partial output if available (e.g., bash stdout during execution)
+          if (update.rawOutput?.output) {
+            this.emit("update", {
+              type: "tool_output_delta",
+              toolName: toolNameUpdate,
+              partialOutput: update.rawOutput.output,
+            })
+            this.emit("tool_output_delta", {
+              tool: toolNameUpdate,
+              output: update.rawOutput.output,
+            })
+          }
         }
         
         // Handle completed status with result

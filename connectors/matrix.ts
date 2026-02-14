@@ -351,6 +351,22 @@ class MatrixConnector extends BaseConnector<RoomSession> {
           }
         }
       }
+      
+      // Handle streaming partial output during tool execution
+      if (update.type === "tool_output_delta" && update.partialOutput) {
+        const toolName = update.toolName || ""
+        if (STREAM_OUTPUT_TOOLS.some(t => toolName.includes(t))) {
+          const output = update.partialOutput
+          // Only send new content we haven't sent yet
+          const outputHash = output.slice(-100)  // Use end of output to detect new content
+          if (!sentToolOutputs.has(outputHash) && output.length > 0) {
+            sentToolOutputs.add(outputHash)
+            // Send partial output as it streams
+            await this.sendMessage(roomId, output)
+            this.log(`[STREAM] Sent partial output (${output.length} chars)`)
+          }
+        }
+      }
     }
 
     // Handle images from tools (e.g., doclibrary page images)
