@@ -461,70 +461,27 @@ export class ACPClient extends EventEmitter {
   }
   
   // Format tool calls into human-readable activity messages
-  // Returns object with both human message and actual tool name for transparency
+  // Generic: shows tool name and compact args for any tool
   private formatToolActivity(tool: string, args: any, phase: "start" | "end"): { description: string; toolName: string } {
     if (phase === "end") return { description: "Done", toolName: tool }
     
-    let description = ""
+    // Format args compactly - show key=value pairs, truncate long values
+    const formatArgs = (obj: any): string => {
+      if (!obj || typeof obj !== "object") return ""
+      const pairs = Object.entries(obj)
+        .filter(([_, v]) => v !== undefined && v !== null && v !== "")
+        .map(([k, v]) => {
+          const val = typeof v === "string" 
+            ? (v.length > 40 ? v.slice(0, 40) + "..." : v)
+            : JSON.stringify(v)
+          return `${k}=${val}`
+        })
+        .slice(0, 3)  // Max 3 params
+      return pairs.join(", ")
+    }
     
-    // Document library tools
-    if (tool.includes("doclibrary_find_document")) {
-      description = `Searching for document: ${args.query || "..."}`
-    } else if (tool.includes("doclibrary_search_documents")) {
-      description = `Searching documents: ${args.query || "..."}`
-    } else if (tool.includes("doclibrary_get_page_image") || tool.includes("doclibrary_get_page_path")) {
-      description = `Getting page ${args.page_number || args.pageNumber || "?"} from ${args.document_slug || "document"}`
-    } else if (tool.includes("doclibrary_get_element_image") || tool.includes("doclibrary_get_element_path")) {
-      description = `Getting ${args.element_label || "element"} from ${args.document_slug || "document"}`
-    } else if (tool.includes("doclibrary_list_documents")) {
-      description = "Listing available documents"
-    } else if (tool.includes("doclibrary_get_document_info")) {
-      description = `Getting info for ${args.document_slug || "document"}`
-    } else if (tool.includes("doclibrary_list_elements")) {
-      description = `Listing elements in ${args.document_slug || "document"}`
-    } else if (tool.includes("doclibrary_search_visual_elements")) {
-      description = `Searching visual elements: ${args.query || "..."}`
-    }
-    // Web search tools
-    else if (tool.includes("web-search") || tool.includes("web_search")) {
-      description = `Searching the web: ${args.query || "..."}`
-    } else if (tool.includes("get-single-web-page") || tool.includes("webfetch")) {
-      description = `Fetching: ${args.url || "..."}`
-    }
-    // Time tools
-    else if (tool.includes("time_get_current_time")) {
-      description = `Getting time in ${args.timezone || "timezone"}`
-    } else if (tool.includes("time_convert_time")) {
-      description = `Converting time`
-    }
-    // Google search
-    else if (tool.includes("google_search")) {
-      description = `Searching Google: ${args.query || "..."}`
-    }
-    // Bash/shell commands
-    else if (tool === "bash" || tool.includes("bash")) {
-      const cmd = args.command || args.cmd || ""
-      const shortCmd = cmd.length > 60 ? cmd.slice(0, 60) + "..." : cmd
-      description = shortCmd ? `$ ${shortCmd}` : "Running command"
-    }
-    // File operations
-    else if (tool === "read" || tool.includes("read")) {
-      description = `Reading: ${args.filePath || args.path || args.file || "file"}`
-    }
-    else if (tool === "glob" || tool.includes("glob")) {
-      description = `Finding: ${args.pattern || "files"}`
-    }
-    else if (tool === "grep" || tool.includes("grep")) {
-      description = `Searching: ${args.pattern || "pattern"}`
-    }
-    // Skills
-    else if (tool === "skill" || tool.includes("skill")) {
-      description = `Loading skill: ${args.name || "..."}`
-    }
-    // Default - just use the tool name
-    else {
-      description = `Executing`
-    }
+    const argsStr = formatArgs(args)
+    const description = argsStr ? argsStr : ""
     
     return { description, toolName: tool }
   }
