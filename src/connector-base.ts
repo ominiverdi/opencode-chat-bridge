@@ -5,7 +5,7 @@
  * that all connectors inherit from.
  */
 
-import { ACPClient } from "./acp-client"
+import { ACPClient, type OpenCodeCommand } from "./acp-client"
 import { 
   getSessionDir, 
   ensureSessionDir, 
@@ -181,16 +181,30 @@ export class CommandHandler {
   
   /**
    * Format /help response
+   * @param trigger Bot trigger prefix (e.g., "!oc")
+   * @param botName Bot display name
+   * @param openCodeCommands Optional list of OpenCode-native commands
    */
-  static formatHelpMessage(trigger: string, botName: string): string {
-    return (
-      `${botName} - OpenCode Chat Bridge\n\n` +
-      `Commands:\n` +
-      `- /status - Show session info\n` +
-      `- /clear or /reset - Clear session history\n` +
-      `- /help - Show this help\n\n` +
-      `Usage: ${trigger} <your question>`
-    )
+  static formatHelpMessage(
+    trigger: string, 
+    botName: string, 
+    openCodeCommands?: { name: string; description: string }[]
+  ): string {
+    let msg = `${botName} - OpenCode Chat Bridge\n\n`
+    msg += `Bridge commands:\n`
+    msg += `- /status - Show session info\n`
+    msg += `- /clear or /reset - Clear session history\n`
+    msg += `- /help - Show this help\n`
+    
+    if (openCodeCommands && openCodeCommands.length > 0) {
+      msg += `\nOpenCode commands:\n`
+      for (const cmd of openCodeCommands) {
+        msg += `- /${cmd.name} - ${cmd.description}\n`
+      }
+    }
+    
+    msg += `\nUsage: ${trigger} <your question>`
+    return msg
   }
   
   static formatNoSessionMessage(): string {
@@ -390,15 +404,22 @@ export abstract class BaseConnector<TSession extends BaseSession> {
    * @param id - Channel/room/chat identifier
    * @param command - The command string (e.g., "/status")
    * @param sendFn - Function to send response
-   * @returns true if command was handled
+   * @param options - Optional: OpenCode commands and forward callback
+   * @returns true if command was handled, false if it should be forwarded to OpenCode
    */
   protected async handleCommand(
     id: string,
     command: string,
-    sendFn: (text: string) => Promise<void>
+    sendFn: (text: string) => Promise<void>,
+    options?: {
+      openCodeCommands?: OpenCodeCommand[]
+      forwardToOpenCode?: (command: string) => Promise<void>
+    }
   ): Promise<boolean> {
     const cmd = command.toLowerCase().trim()
+    const cmdName = cmd.replace(/^\//, "").split(" ")[0]  // Extract command name without /
     
+    // Bridge-local commands
     if (cmd === "/status") {
       return await this.handleStatusCommand(id, sendFn)
     }
@@ -408,7 +429,17 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     }
     
     if (cmd === "/help") {
-      return await this.handleHelpCommand(sendFn)
+      return await this.handleHelpCommand(sendFn, options?.openCodeCommands)
+    }
+    
+    // Check if this is an OpenCode command
+    const openCodeCommands = options?.openCodeCommands || []
+    const isOpenCodeCmd = openCodeCommands.some(c => c.name === cmdName)
+    
+    if (isOpenCodeCmd && options?.forwardToOpenCode) {
+      // Forward to OpenCode - return false to indicate caller should process as prompt
+      await options.forwardToOpenCode(command)
+      return true
     }
     
     await sendFn(CommandHandler.formatUnknownCommandMessage(command))
@@ -448,11 +479,13 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   }
   
   private async handleHelpCommand(
-    sendFn: (text: string) => Promise<void>
+    sendFn: (text: string) => Promise<void>,
+    openCodeCommands?: OpenCodeCommand[]
   ): Promise<boolean> {
     const message = CommandHandler.formatHelpMessage(
       this.config.trigger,
-      this.config.botName
+      this.config.botName,
+      openCodeCommands
     )
     await sendFn(message)
     return true

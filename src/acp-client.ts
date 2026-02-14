@@ -68,6 +68,12 @@ export interface ImageContent {
   alt?: string
 }
 
+// OpenCode command definition
+export interface OpenCodeCommand {
+  name: string
+  description: string
+}
+
 export class ACPClient extends EventEmitter {
   private acp: ChildProcess | null = null
   private requestId = 0
@@ -76,11 +82,28 @@ export class ACPClient extends EventEmitter {
   private sessionId: string | null = null
   private cwd: string
   private mcpServers: MCPServer[]
+  private _availableCommands: OpenCodeCommand[] = []
   
   constructor(options: ACPClientOptions = {}) {
     super()
     this.cwd = options.cwd || process.cwd()
     this.mcpServers = options.mcpServers || []
+  }
+  
+  /**
+   * Get the list of commands available in OpenCode
+   * Populated from available_commands_update after session creation
+   */
+  get availableCommands(): OpenCodeCommand[] {
+    return this._availableCommands
+  }
+  
+  /**
+   * Check if a command name is available in OpenCode
+   * @param name Command name without leading slash (e.g., "init", "compact")
+   */
+  hasCommand(name: string): boolean {
+    return this._availableCommands.some(cmd => cmd.name === name)
   }
   
   async connect(): Promise<void> {
@@ -409,6 +432,17 @@ export class ACPClient extends EventEmitter {
             tool: toolNameUpdate,
             message: "Failed",
           })
+        }
+        break
+        
+      case "available_commands_update":
+        // Store OpenCode's available commands
+        if (update.availableCommands && Array.isArray(update.availableCommands)) {
+          this._availableCommands = update.availableCommands.map((cmd: any) => ({
+            name: cmd.name,
+            description: cmd.description || "",
+          }))
+          this.emit("commands_updated", this._availableCommands)
         }
         break
     }
