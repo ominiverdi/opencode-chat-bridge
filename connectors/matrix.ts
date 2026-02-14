@@ -281,26 +281,24 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
     // Handle commands
     if (query.startsWith("/")) {
-      // Get existing session to check available OpenCode commands
-      const existingSession = this.sessionManager.get(roomId)
-      const openCodeCommands = existingSession?.client.availableCommands || []
-      
-      // Check if this is an OpenCode command - if so, process as a query
       const cmdName = query.slice(1).split(" ")[0].toLowerCase()
-      const isOpenCodeCmd = openCodeCommands.some(c => c.name === cmdName)
       
-      if (isOpenCodeCmd) {
-        // Forward OpenCode commands through processQuery
-        this.log(`[CMD] Forwarding OpenCode command: ${query}`)
-        if (!this.checkRateLimit(message.sender)) return
-        await this.processQuery(roomId, message.sender, query)
+      // Bridge-local commands - handle without session
+      const bridgeCommands = ["status", "clear", "reset", "help"]
+      if (bridgeCommands.includes(cmdName)) {
+        const existingSession = this.sessionManager.get(roomId)
+        const openCodeCommands = existingSession?.client.availableCommands || []
+        await this.handleCommand(roomId, query, async (text) => {
+          await this.sendNotice(roomId, text)
+        }, { openCodeCommands })
         return
       }
       
-      // Handle bridge-local commands
-      await this.handleCommand(roomId, query, async (text) => {
-        await this.sendNotice(roomId, text)
-      }, { openCodeCommands })
+      // All other /commands -> forward to OpenCode (creates session if needed)
+      // This supports /init, /compact, /review, and custom commands
+      this.log(`[CMD] Forwarding to OpenCode: ${query}`)
+      if (!this.checkRateLimit(message.sender)) return
+      await this.processQuery(roomId, message.sender, query)
       return
     }
 
