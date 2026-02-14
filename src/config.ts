@@ -38,6 +38,7 @@ export interface ChatBridgeConfig {
   sessionStorePath: string
   defaultAgent: string | null
   modes: Record<string, string>
+  streamTools: string[]  // Tools to stream output for (e.g., ["bash"]), empty = none
   matrix: MatrixConfig
   whatsapp: WhatsAppConfig
 }
@@ -50,6 +51,7 @@ const defaultConfig: ChatBridgeConfig = {
   sessionStorePath: "./.opencode/chat-sessions.json",
   defaultAgent: null,
   modes: {},
+  streamTools: ["bash"],  // Only stream bash output by default
   matrix: {
     enabled: false,
     homeserver: "https://matrix.org",
