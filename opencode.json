@@ -34,13 +34,14 @@
         "edit": "deny",
         "glob": "deny",
         "grep": "deny",
-        "bash": "deny",
+        "bash": "allow",
         "task": "deny",
         "todowrite": "deny",
         "todoread": "deny",
         "webfetch": "deny",
         "codesearch": "deny",
         "question": "allow",
+        "skill": "allow",
         
         "chrome-devtools_*": "deny",
         
