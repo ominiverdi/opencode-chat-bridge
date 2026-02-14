@@ -7,7 +7,7 @@
  *   Library: import { ACPClient } from "opencode-chat-bridge"
  */
 
-export { ACPClient, type ACPClientOptions, type MCPServer, type SessionUpdate, type ActivityEvent, type ImageContent } from "./acp-client"
+export { ACPClient, type ACPClientOptions, type MCPServer, type SessionUpdate, type ActivityEvent, type ImageContent, type OpenCodeCommand } from "./acp-client"
 export { getConfig, loadConfig, clearConfigCache, type ChatBridgeConfig, type MatrixConfig, type WhatsAppConfig } from "./config"
 export { 
   getSessionDir, 
