@@ -4,14 +4,12 @@
   "rateLimitSeconds": 5,
   "sessionStorePath": "./.opencode/chat-sessions.json",
   "defaultAgent": null,
-  
   "modes": {
     "!s": "serious",
     "!d": "sarcastic",
     "!a": "agent",
     "!p": "plan"
   },
-  
   "matrix": {
     "enabled": true,
     "homeserver": "https://matrix.org",
@@ -19,22 +17,18 @@
     "accessToken": "{env:MATRIX_ACCESS_TOKEN}",
     "password": "{env:MATRIX_PASSWORD}",
     "deviceId": "OPENCODE_BRIDGE_001",
-    
     "encryption": {
       "enabled": false,
       "storePath": "./matrix-store/"
     },
-    
     "autoJoin": true,
-    
     "triggerPatterns": [
       "!oc "
     ],
-    
     "ignoreRooms": [],
-    "ignoreUsers": []
+    "ignoreUsers": [],
+    "formatHtml": true
   },
-  
   "whatsapp": {
     "enabled": true,
     "authFolder": "./.whatsapp-auth",

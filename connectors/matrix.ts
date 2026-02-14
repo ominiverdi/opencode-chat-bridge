@@ -35,6 +35,7 @@ import {
 
 import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
+import { marked } from "marked"
 import {
   BaseConnector,
   type BaseSession,
@@ -55,6 +56,7 @@ const USER_ID = config.matrix.userId || process.env.MATRIX_USER_ID
 const TRIGGER = config.trigger
 const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
+const FORMAT_HTML = config.matrix.formatHtml || false
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 
 // Storage paths
@@ -167,7 +169,17 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
   async sendMessage(roomId: string, text: string): Promise<void> {
     try {
-      await this.matrix!.sendText(roomId, text)
+      if (FORMAT_HTML) {
+        const html = await marked.parse(text)
+        await this.matrix!.sendMessage(roomId, {
+          msgtype: "m.text",
+          body: text,
+          format: "org.matrix.custom.html",
+          formatted_body: html,
+        })
+      } else {
+        await this.matrix!.sendText(roomId, text)
+      }
     } catch (err) {
       this.logError(`Failed to send message to ${roomId}:`, err)
     }
