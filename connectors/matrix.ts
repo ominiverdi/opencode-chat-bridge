@@ -321,9 +321,6 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
     
-    // Tools whose output should be streamed immediately
-    const STREAM_OUTPUT_TOOLS = ["bash", "read", "web-search_full-web-search", "web-search_get-single-web-page-content"]
-    
     // Track what we've already sent to avoid duplication
     const sentToolOutputs = new Set<string>()
     // Track streamed output length per tool call to send only deltas
@@ -342,53 +339,49 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       responseBuffer += text
     }
 
-    // Capture tool results for image markers AND stream interesting outputs immediately
+    // Capture tool results for image markers AND stream outputs immediately
     const updateHandler = async (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
         
-        // Stream results from interesting tools immediately (if not already streamed)
+        // Stream results immediately (if not already streamed during execution)
         const toolName = update.toolName || ""
-        if (STREAM_OUTPUT_TOOLS.some(t => toolName.includes(t))) {
-          const toolKey = `${toolName}:${update.toolCallId || "default"}`
-          const alreadyStreamedLength = streamedOutputLengths.get(toolKey) || 0
+        const toolKey = `${toolName}:${update.toolCallId || "default"}`
+        const alreadyStreamedLength = streamedOutputLengths.get(toolKey) || 0
+        
+        // Skip if we already streamed all or most of the content
+        if (alreadyStreamedLength > 0 && alreadyStreamedLength >= update.toolResult.length * 0.9) {
+          this.log(`[STREAM] Skipping final result - already streamed (${alreadyStreamedLength}/${update.toolResult.length} chars)`)
+        } else {
+          // Truncate very long outputs
+          const maxLen = 2000
+          const result = update.toolResult.length > maxLen 
+            ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
+            : update.toolResult
           
-          // Skip if we already streamed all or most of the content
-          if (alreadyStreamedLength > 0 && alreadyStreamedLength >= update.toolResult.length * 0.9) {
-            this.log(`[STREAM] Skipping final result - already streamed (${alreadyStreamedLength}/${update.toolResult.length} chars)`)
-          } else {
-            // Truncate very long outputs
-            const maxLen = 2000
-            const result = update.toolResult.length > maxLen 
-              ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
-              : update.toolResult
-            
-            // Create a hash to track what we've sent
-            const outputHash = result.slice(0, 100)
-            if (!sentToolOutputs.has(outputHash)) {
-              sentToolOutputs.add(outputHash)
-              // Send immediately as a separate message
-              await this.sendMessage(roomId, result)
-            }
+          // Create a hash to track what we've sent
+          const outputHash = result.slice(0, 100)
+          if (!sentToolOutputs.has(outputHash)) {
+            sentToolOutputs.add(outputHash)
+            // Send immediately as a separate message
+            await this.sendMessage(roomId, result)
           }
         }
       }
       
-      // Handle streaming partial output during tool execution
+      // Handle streaming partial output during tool execution (all tools)
       if (update.type === "tool_output_delta" && update.partialOutput) {
         const toolName = update.toolName || ""
-        if (STREAM_OUTPUT_TOOLS.some(t => toolName.includes(t))) {
-          const fullOutput = update.partialOutput
-          const toolKey = `${toolName}:${update.toolCallId || "default"}`
-          const lastSentLength = streamedOutputLengths.get(toolKey) || 0
-          
-          // Only send the new delta (content we haven't sent yet)
-          if (fullOutput.length > lastSentLength) {
-            const delta = fullOutput.slice(lastSentLength)
-            streamedOutputLengths.set(toolKey, fullOutput.length)
-            await this.sendMessage(roomId, delta.trim())
-            this.log(`[STREAM] Sent delta (${delta.length} chars, total: ${fullOutput.length})`)
-          }
+        const fullOutput = update.partialOutput
+        const toolKey = `${toolName}:${update.toolCallId || "default"}`
+        const lastSentLength = streamedOutputLengths.get(toolKey) || 0
+        
+        // Only send the new delta (content we haven't sent yet)
+        if (fullOutput.length > lastSentLength) {
+          const delta = fullOutput.slice(lastSentLength)
+          streamedOutputLengths.set(toolKey, fullOutput.length)
+          await this.sendMessage(roomId, delta.trim())
+          this.log(`[STREAM] Sent delta (${delta.length} chars, total: ${fullOutput.length})`)
         }
       }
     }
