@@ -314,6 +314,8 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     
     // Track what we've already sent to avoid duplication
     const sentToolOutputs = new Set<string>()
+    // Track streamed output length per tool call to send only deltas
+    const streamedOutputLengths = new Map<string, number>()
 
     // Activity events - show what the AI is doing
     const activityHandler = async (activity: ActivityEvent) => {
@@ -333,21 +335,29 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
         
-        // Stream results from interesting tools immediately
+        // Stream results from interesting tools immediately (if not already streamed)
         const toolName = update.toolName || ""
         if (STREAM_OUTPUT_TOOLS.some(t => toolName.includes(t))) {
-          // Truncate very long outputs
-          const maxLen = 2000
-          const result = update.toolResult.length > maxLen 
-            ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
-            : update.toolResult
+          const toolKey = `${toolName}:${update.toolCallId || "default"}`
+          const alreadyStreamedLength = streamedOutputLengths.get(toolKey) || 0
           
-          // Create a hash to track what we've sent
-          const outputHash = result.slice(0, 100)
-          if (!sentToolOutputs.has(outputHash)) {
-            sentToolOutputs.add(outputHash)
-            // Send immediately as a separate message
-            await this.sendMessage(roomId, result)
+          // Skip if we already streamed all or most of the content
+          if (alreadyStreamedLength > 0 && alreadyStreamedLength >= update.toolResult.length * 0.9) {
+            this.log(`[STREAM] Skipping final result - already streamed (${alreadyStreamedLength}/${update.toolResult.length} chars)`)
+          } else {
+            // Truncate very long outputs
+            const maxLen = 2000
+            const result = update.toolResult.length > maxLen 
+              ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
+              : update.toolResult
+            
+            // Create a hash to track what we've sent
+            const outputHash = result.slice(0, 100)
+            if (!sentToolOutputs.has(outputHash)) {
+              sentToolOutputs.add(outputHash)
+              // Send immediately as a separate message
+              await this.sendMessage(roomId, result)
+            }
           }
         }
       }
@@ -356,14 +366,16 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       if (update.type === "tool_output_delta" && update.partialOutput) {
         const toolName = update.toolName || ""
         if (STREAM_OUTPUT_TOOLS.some(t => toolName.includes(t))) {
-          const output = update.partialOutput
-          // Only send new content we haven't sent yet
-          const outputHash = output.slice(-100)  // Use end of output to detect new content
-          if (!sentToolOutputs.has(outputHash) && output.length > 0) {
-            sentToolOutputs.add(outputHash)
-            // Send partial output as it streams
-            await this.sendMessage(roomId, output)
-            this.log(`[STREAM] Sent partial output (${output.length} chars)`)
+          const fullOutput = update.partialOutput
+          const toolKey = `${toolName}:${update.toolCallId || "default"}`
+          const lastSentLength = streamedOutputLengths.get(toolKey) || 0
+          
+          // Only send the new delta (content we haven't sent yet)
+          if (fullOutput.length > lastSentLength) {
+            const delta = fullOutput.slice(lastSentLength)
+            streamedOutputLengths.set(toolKey, fullOutput.length)
+            await this.sendMessage(roomId, delta.trim())
+            this.log(`[STREAM] Sent delta (${delta.length} chars, total: ${fullOutput.length})`)
           }
         }
       }
