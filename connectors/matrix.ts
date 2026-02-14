@@ -308,6 +308,12 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     let responseBuffer = ""
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
+    
+    // Capture interesting tool results to include in response
+    const capturedToolResults: Array<{ tool: string; result: string }> = []
+    
+    // Tools whose output should be included in the response
+    const INCLUDE_OUTPUT_TOOLS = ["bash", "read", "web-search_full-web-search", "web-search_get-single-web-page-content"]
 
     // Activity events - show what the AI is doing
     const activityHandler = async (activity: ActivityEvent) => {
@@ -322,10 +328,21 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       responseBuffer += text
     }
 
-    // Capture tool results for image markers
+    // Capture tool results for image markers AND interesting outputs
     const updateHandler = (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
+        
+        // Capture results from interesting tools
+        const toolName = update.toolName || ""
+        if (INCLUDE_OUTPUT_TOOLS.some(t => toolName.includes(t))) {
+          // Truncate very long outputs
+          const maxLen = 2000
+          const result = update.toolResult.length > maxLen 
+            ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
+            : update.toolResult
+          capturedToolResults.push({ tool: toolName, result })
+        }
       }
     }
 
@@ -367,9 +384,33 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
       // Clean response and send
       const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
-      if (cleanResponse) {
-        session.outputChars += cleanResponse.length
-        await this.sendMessage(roomId, cleanResponse)
+      
+      // Check if we should include tool outputs that the model didn't echo
+      let finalResponse = cleanResponse
+      
+      if (capturedToolResults.length > 0) {
+        // Check if model's response already includes the tool output
+        // (to avoid duplication)
+        const toolOutputs: string[] = []
+        for (const { tool, result } of capturedToolResults) {
+          // Only include if the result content isn't already in the response
+          const resultPreview = result.slice(0, 100)
+          if (!cleanResponse.includes(resultPreview.slice(0, 50))) {
+            // Format tool output
+            const toolLabel = tool.replace(/_/g, " ").replace("web-search ", "")
+            toolOutputs.push(`[${toolLabel} output]\n${result}`)
+          }
+        }
+        
+        if (toolOutputs.length > 0) {
+          // Prepend tool outputs to the response
+          finalResponse = toolOutputs.join("\n\n") + "\n\n" + cleanResponse
+        }
+      }
+      
+      if (finalResponse) {
+        session.outputChars += finalResponse.length
+        await this.sendMessage(roomId, finalResponse)
       }
     } catch (err) {
       this.logError("Error processing query:", err)

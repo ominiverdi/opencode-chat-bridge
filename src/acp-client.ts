@@ -309,6 +309,7 @@ export class ACPClient extends EventEmitter {
           if (result) {
             this.emit("update", {
               type: "tool_result",
+              toolName: toolNameUpdate,
               toolResult: result,
             })
             
