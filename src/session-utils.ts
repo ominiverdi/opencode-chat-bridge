@@ -88,12 +88,41 @@ function copyIfNewer(sourceDir: string, sessionDir: string, fileName: string): v
 }
 
 /**
+ * Copy or symlink a directory to session directory.
+ */
+function symlinkDir(sourceDir: string, sessionDir: string, dirName: string): void {
+  const sourcePath = path.join(sourceDir, dirName)
+  const targetPath = path.join(sessionDir, dirName)
+  
+  if (fs.existsSync(sourcePath) && fs.statSync(sourcePath).isDirectory()) {
+    try {
+      // Remove existing symlink or directory
+      if (fs.existsSync(targetPath)) {
+        const stat = fs.lstatSync(targetPath)
+        if (stat.isSymbolicLink()) {
+          fs.unlinkSync(targetPath)
+        } else {
+          fs.rmSync(targetPath, { recursive: true })
+        }
+      }
+      
+      // Create symlink to source directory
+      fs.symlinkSync(sourcePath, targetPath, "dir")
+      console.log(`  Symlinked ${dirName} to session directory`)
+    } catch (err) {
+      console.error(`Failed to symlink ${dirName}:`, err)
+    }
+  }
+}
+
+/**
  * Copy config files to session directory.
  * 
  * OpenCode looks for config in the working directory (cwd).
  * Since sessions run from ~/.cache/..., we copy these files there:
  * - opencode.json: Agent config with tool permissions
  * - AGENTS.md: Instructions that override global AGENTS.md
+ * - .opencode/skills/: Symlinked for skill discovery
  * 
  * @param sessionDir - Target session directory
  * @param projectDir - Source project directory (default: process.cwd())
@@ -103,6 +132,9 @@ export function copyOpenCodeConfig(sessionDir: string, projectDir?: string): voi
   
   copyIfNewer(sourceDir, sessionDir, "opencode.json")
   copyIfNewer(sourceDir, sessionDir, "AGENTS.md")
+  
+  // Symlink .opencode directory for skills, tools, commands
+  symlinkDir(sourceDir, sessionDir, ".opencode")
 }
 
 /**
