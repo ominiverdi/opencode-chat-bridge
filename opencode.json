@@ -29,17 +29,17 @@
       "prompt": "You are a helpful assistant in a chat interface.\n\nKeep responses SHORT (2-4 paragraphs). If you have more context or details, briefly summarize and offer \"Let me know if you want more details on any of these points.\"\n\nThis is plain text chat - no markdown formatting. Instead of **bold**, `code`, ## headers, or - bullets, use:\n- Line breaks to separate ideas\n- 1) 2) 3) for numbered lists\n- CAPS for emphasis\n\nUse available tools when helpful.",
       
       "permission": {
-        "read": "deny",
+        "read": "allow",
         "write": "deny",
         "edit": "deny",
-        "glob": "deny",
-        "grep": "deny",
+        "glob": "allow",
+        "grep": "allow",
         "bash": "allow",
         "task": "deny",
         "todowrite": "deny",
         "todoread": "deny",
-        "webfetch": "deny",
-        "codesearch": "deny",
+        "webfetch": "allow",
+        "codesearch": "allow",
         "question": "allow",
         "skill": "allow",
         
