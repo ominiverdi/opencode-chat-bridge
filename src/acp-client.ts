@@ -210,12 +210,48 @@ export class ACPClient extends EventEmitter {
       return
     }
     
+    // Handle permission requests - auto-reject with message
+    if (msg.method === "session/requestPermission") {
+      this.handlePermissionRequest(msg)
+      return
+    }
+    
     // Handle responses
     if (msg.id && this.pending.has(msg.id)) {
       const resolve = this.pending.get(msg.id)!
       this.pending.delete(msg.id)
       resolve(msg)
     }
+  }
+  
+  private handlePermissionRequest(msg: any): void {
+    const params = msg.params
+    const toolCall = params.toolCall || {}
+    const title = toolCall.title || "unknown"
+    const locations = toolCall.locations || []
+    const path = locations[0]?.path || "unknown path"
+    
+    console.error(`[ACP] Permission requested: ${title} (${path}) - auto-rejecting`)
+    
+    // Emit an event so the connector can show the user what happened
+    this.emit("permission_rejected", {
+      permission: title,
+      path: path,
+      message: `Permission denied: ${title} (${path})`,
+    })
+    
+    // Send rejection response
+    const response = {
+      jsonrpc: "2.0",
+      id: msg.id,
+      result: {
+        outcome: {
+          outcome: "selected",
+          optionId: "reject",
+        },
+      },
+    }
+    this.acp!.stdin!.write(JSON.stringify(response) + "\n")
   }
   
   private handleSessionUpdate(params: any): void {
