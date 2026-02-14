@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Chat-bridge handles `tool_output_delta` events from ACP
   - Sends only new content (deltas), not accumulated output
   - Skips final tool result if already streamed
+- **Permission request handling** - Properly handles OpenCode permission requests
+  - Auto-rejects with clear message (e.g., "Permission denied: external_directory (/etc/passwd)")
+  - Prevents hanging when tools require elevated permissions
+  - Shows both the permission denial and the tool error to users
 
 ### Changed
 - Added  as a dependency for markdown-to-HTML conversion

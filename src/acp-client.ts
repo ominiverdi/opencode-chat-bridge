@@ -204,10 +204,7 @@ export class ACPClient extends EventEmitter {
   }
   
   private handleMessage(msg: any): void {
-    // Debug: log ALL incoming messages
-    if (msg.method) {
-      console.error(`[ACP MSG] method=${msg.method} id=${msg.id || 'none'} full:`, JSON.stringify(msg).slice(0, 500))
-    }
+
     
     // Handle notifications
     if (msg.method === "session/update") {
@@ -226,12 +223,6 @@ export class ACPClient extends EventEmitter {
       const resolve = this.pending.get(msg.id)!
       this.pending.delete(msg.id)
       resolve(msg)
-      return
-    }
-    
-    // Log unhandled messages with an id (requests we don't handle)
-    if (msg.id && msg.method) {
-      console.error(`[ACP UNHANDLED REQUEST] method=${msg.method} id=${msg.id}`, JSON.stringify(msg.params || {}).slice(0, 200))
     }
   }
   
@@ -270,8 +261,7 @@ export class ACPClient extends EventEmitter {
   private handleSessionUpdate(params: any): void {
     const update = params.update
     
-    // Debug: log all session updates
-    console.error(`[ACP DEBUG] sessionUpdate: ${update.sessionUpdate}`, JSON.stringify(update).slice(0, 200))
+
     
     switch (update.sessionUpdate) {
       case "agent_message_chunk":
