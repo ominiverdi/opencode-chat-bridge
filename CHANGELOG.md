@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **HTML message formatting for Matrix** - New  config option converts
+  markdown responses to HTML using , sending both  (HTML)
+  and  (plain text fallback) per the Matrix spec. Tables, bold, lists, and
+  code blocks render natively in Matrix clients. Disabled by default.
+- **MCP server environment variables** - MCP servers defined in  can
+  now include an  block for passing configuration (API URLs, tokens,
+  feature flags) to the server process.
+
+### Changed
+- Added  as a dependency for markdown-to-HTML conversion
+
 ## [0.4.0] - 2026-02-13
 
 ### Added

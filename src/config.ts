@@ -22,6 +22,7 @@ export interface MatrixConfig {
   triggerPatterns: string[]
   ignoreRooms: string[]
   ignoreUsers: string[]
+  formatHtml: boolean
 }
 
 export interface WhatsAppConfig {
@@ -63,7 +64,8 @@ const defaultConfig: ChatBridgeConfig = {
     autoJoin: true,
     triggerPatterns: ["!oc "],
     ignoreRooms: [],
-    ignoreUsers: []
+    ignoreUsers: [],
+    formatHtml: false
   },
   whatsapp: {
     enabled: false,

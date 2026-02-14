@@ -146,6 +146,17 @@ The bot shows what tools are being used:
 
 Each room has its own conversation session. Use `/clear` to reset.
 
+### HTML Formatting
+
+Enable rich HTML rendering in Matrix clients:
+
+In :
+
+
+When enabled, markdown from the LLM is converted to HTML. Matrix clients
+render tables, bold text, code blocks, and lists natively. The plain text
+version is always included as a fallback for non-Matrix clients.
+
 ## Security Considerations
 
 ### E2EE Support
