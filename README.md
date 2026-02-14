@@ -60,6 +60,18 @@ Use the trigger prefix (default: `!oc`) or mention the bot:
 !oc /clear
 ```
 
+### OpenCode Commands
+
+OpenCode's built-in commands are forwarded automatically:
+
+```
+!oc /init          # Initialize context with codebase summary
+!oc /compact       # Compress conversation history
+!oc /review        # Review recent changes
+```
+
+These appear in `/help` and are passed directly to OpenCode.
+
 ## Permissions
 
 OpenCode uses tools (functions) to perform actions. The `opencode.json` file controls which tools are allowed. A local file overrides your global config (`~/.config/opencode/opencode.json`).

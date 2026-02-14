@@ -255,6 +255,115 @@ Using both provides defense in depth:
 
 
 
+## Skills
+
+Skills are custom instruction sets that the AI can load via the `skill` tool.
+They provide domain-specific context, formatting preferences, or personas.
+
+### Creating Skills
+
+Skills live in `.opencode/skills/<name>/SKILL.md`:
+
+```
+.opencode/
+  skills/
+    weather/
+      SKILL.md
+    assistant/
+      SKILL.md
+```
+
+**Example skill** (`.opencode/skills/weather/SKILL.md`):
+
+```markdown
+# Weather Skill
+
+When reporting weather, always include:
+- Temperature in Celsius
+- Wind speed and direction
+- Humidity percentage
+
+Format as a markdown table for chat readability.
+```
+
+### Enabling Skills
+
+1. Add `skill: allow` to agent permissions in `opencode.json`:
+
+```json
+{
+  "agent": {
+    "chat-bridge": {
+      "permission": {
+        "skill": "allow"
+      }
+    }
+  }
+}
+```
+
+2. The bridge automatically symlinks `.opencode/` to session directories
+
+3. Users can invoke skills via chat:
+```
+!oc /weather    # Loads the weather skill
+```
+
+### Skills vs Commands vs Tools
+
+| Type | Location | Purpose |
+|------|----------|---------|
+| **Skills** | `.opencode/skills/` | Instructions loaded by AI via `skill` tool |
+| **Commands** | `.opencode/commands/` | Prompts invoked with `/name`, shown in /help |
+| **Tools** | `.opencode/tools/` | Code the AI can execute |
+
+### Notes
+
+- Skills are local config - don't commit secrets to git
+- The `.opencode/` directory is gitignored by default
+- Skills require both `skill: allow` permission and the symlink setup
+
+## Streaming Tool Output
+
+When tools execute, their output can be streamed to chat in real-time. This is
+useful for long-running commands like bash scripts where you want to see progress.
+
+### streamTools Configuration
+
+The `streamTools` option in `chat-bridge.json` controls which tools have their
+output streamed during execution:
+
+```json
+{
+  "streamTools": ["bash"]
+}
+```
+
+**Default:** `["bash"]` - Only bash tool output is streamed.
+
+**How it works:**
+- Tools in the list emit output as it happens (real-time streaming)
+- Tools NOT in the list have their output suppressed during execution
+- Final results are still shown in the AI's response
+
+**Example configurations:**
+
+```json
+// Stream only bash (default)
+{ "streamTools": ["bash"] }
+
+// Stream bash and weather tools
+{ "streamTools": ["bash", "weather"] }
+
+// Disable all streaming (quiet mode)
+{ "streamTools": [] }
+```
+
+**Why configure this?**
+- Some tools produce verbose intermediate output you don't want to see
+- Weather/time tools return data that the AI summarizes better
+- Bash commands benefit from real-time output for long operations
+
 ## Matrix HTML Formatting
 
 By default, bot responses are sent as plain text. When `formatHtml` is enabled,
