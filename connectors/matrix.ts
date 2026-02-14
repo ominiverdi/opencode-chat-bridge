@@ -409,9 +409,9 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     }
 
     // Handle permission rejections
-    const permissionHandler = async (event: { permission: string; path: string; message: string }) => {
-      this.log(`[PERMISSION] Rejected: ${event.permission} (${event.path})`)
-      await this.sendNotice(roomId, `> Permission denied: ${event.permission} (${event.path})`)
+    const permissionHandler = async (event: { permission: string; path: string | null; message: string }) => {
+      this.log(`[PERMISSION] Rejected: ${event.permission}${event.path ? ` (${event.path})` : ""}`)
+      await this.sendNotice(roomId, `> ${event.message}`)
     }
 
     // Set up listeners
