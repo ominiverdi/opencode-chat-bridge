@@ -359,12 +359,21 @@ class MatrixConnector extends BaseConnector<RoomSession> {
             ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
             : update.toolResult
           
-          // Create a hash to track what we've sent
-          const outputHash = result.slice(0, 100)
-          if (!sentToolOutputs.has(outputHash)) {
-            sentToolOutputs.add(outputHash)
-            // Send immediately as a separate message
-            await this.sendMessage(roomId, result)
+          // Skip empty results
+          if (!result || result.trim().length === 0) {
+            this.log(`[STREAM] Skipping empty tool result`)
+          } else {
+            // Create a hash to track what we've sent
+            const outputHash = result.slice(0, 100)
+            if (!sentToolOutputs.has(outputHash)) {
+              sentToolOutputs.add(outputHash)
+              // Send immediately as a separate message
+              try {
+                await this.sendMessage(roomId, result)
+              } catch (err) {
+                this.log(`[STREAM] Error sending tool result: ${err}`)
+              }
+            }
           }
         }
       }
