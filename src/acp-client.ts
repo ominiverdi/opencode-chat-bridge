@@ -221,6 +221,9 @@ export class ACPClient extends EventEmitter {
   private handleSessionUpdate(params: any): void {
     const update = params.update
     
+    // Debug: log all session updates
+    console.error(`[ACP DEBUG] sessionUpdate: ${update.sessionUpdate}`, JSON.stringify(update).slice(0, 200))
+    
     switch (update.sessionUpdate) {
       case "agent_message_chunk":
         if (update.content?.type === "text") {
