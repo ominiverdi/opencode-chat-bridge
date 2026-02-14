@@ -83,6 +83,8 @@ export class ACPClient extends EventEmitter {
   private cwd: string
   private mcpServers: MCPServer[]
   private _availableCommands: OpenCodeCommand[] = []
+  // Track cumulative output per tool call to compute actual deltas
+  private toolOutputSeen = new Map<string, number>()
   
   constructor(options: ACPClientOptions = {}) {
     super()
@@ -361,23 +363,38 @@ export class ACPClient extends EventEmitter {
           })
           
           // Stream partial output if available (e.g., bash stdout during execution)
+          // rawOutput.output is CUMULATIVE - compute actual delta
           if (update.rawOutput?.output) {
-            this.emit("update", {
-              type: "tool_output_delta",
-              toolName: toolNameUpdate,
-              toolCallId: update.toolCallId,
-              partialOutput: update.rawOutput.output,
-            })
-            this.emit("tool_output_delta", {
-              tool: toolNameUpdate,
-              toolCallId: update.toolCallId,
-              output: update.rawOutput.output,
-            })
+            const fullOutput = update.rawOutput.output
+            const toolCallId = update.toolCallId || toolNameUpdate
+            const seenLength = this.toolOutputSeen.get(toolCallId) || 0
+            
+            // Only emit new content (the delta)
+            if (fullOutput.length > seenLength) {
+              const delta = fullOutput.slice(seenLength)
+              this.toolOutputSeen.set(toolCallId, fullOutput.length)
+              
+              this.emit("update", {
+                type: "tool_output_delta",
+                toolName: toolNameUpdate,
+                toolCallId: update.toolCallId,
+                partialOutput: delta,
+              })
+              this.emit("tool_output_delta", {
+                tool: toolNameUpdate,
+                toolCallId: update.toolCallId,
+                output: delta,
+              })
+            }
           }
         }
         
         // Handle completed status with result
         if (update.status === "completed") {
+          // Clean up output tracking for this tool call
+          const toolCallId = update.toolCallId || toolNameUpdate
+          this.toolOutputSeen.delete(toolCallId)
+          
           // Get result from content or rawOutput
           let result = ""
           if (update.content && Array.isArray(update.content)) {
@@ -420,6 +437,10 @@ export class ACPClient extends EventEmitter {
         
         // Handle failed status (blocked or error)
         if (update.status === "failed") {
+          // Clean up output tracking for this tool call
+          const failedToolCallId = update.toolCallId || toolNameUpdate
+          this.toolOutputSeen.delete(failedToolCallId)
+          
           let errorMsg = "Tool execution failed"
           if (update.content && Array.isArray(update.content)) {
             for (const item of update.content) {
