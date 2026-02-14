@@ -271,10 +271,12 @@ export class ACPClient extends EventEmitter {
     console.error(`[ACP] Permission requested: ${title} - auto-rejecting`)
     
     // Emit an event so the connector can show the user what happened
+    // Only show path if it's different from the permission type
+    const showPath = path && path !== title
     this.emit("permission_rejected", {
       permission: title,
-      path: displayPath,
-      message: path ? `Permission denied: ${title} (${path})` : `Permission denied: ${title}`,
+      path: path || null,
+      message: showPath ? `Permission denied: ${title} (${path})` : `Permission denied: ${title}`,
     })
     
     // Send rejection response
