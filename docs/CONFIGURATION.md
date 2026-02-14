@@ -257,20 +257,26 @@ Using both provides defense in depth:
 
 ## Matrix HTML Formatting
 
-By default, bot responses are sent as plain text. When  is enabled,
+By default, bot responses are sent as plain text. When `formatHtml` is enabled,
 the Matrix connector converts markdown responses to HTML before sending, using
-the Matrix  field. Matrix clients render the HTML while plain
+the Matrix `formatted_body` field. Matrix clients render the HTML while plain
 text clients (IRC bridges, etc.) see the unformatted fallback.
 
 ### Enable in chat-bridge.json
 
-
+```json
+{
+  "matrix": {
+    "formatHtml": true
+  }
+}
+```
 
 ### What it does
 
-| With  (default) | With  |
+| With `formatHtml: false` (default) | With `formatHtml: true` |
 |-------------------------------------|-------------------------|
-|  - plain text only |  with  |
+| `sendText()` - plain text only | `sendMessage()` with `format: org.matrix.custom.html` |
 | Markdown syntax visible as raw text | Tables, bold, lists rendered natively |
 | Works on all clients equally | HTML for Matrix, plain text fallback for others |
 
@@ -278,7 +284,7 @@ text clients (IRC bridges, etc.) see the unformatted fallback.
 
 - Enable when your primary audience uses Matrix/Element clients
 - Leave disabled for IRC-bridged rooms or plain text environments
-- The plain text  is always included as a fallback
+- The plain text `body` is always included as a fallback
 
 ## CLI Options
 

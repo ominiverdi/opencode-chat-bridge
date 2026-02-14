@@ -148,10 +148,17 @@ Each room has its own conversation session. Use `/clear` to reset.
 
 ### HTML Formatting
 
-Enable rich HTML rendering in Matrix clients:
+Enable rich HTML rendering in Matrix clients.
 
-In :
+In `chat-bridge.json`:
 
+```json
+{
+  "matrix": {
+    "formatHtml": true
+  }
+}
+```
 
 When enabled, markdown from the LLM is converted to HTML. Matrix clients
 render tables, bold text, code blocks, and lists natively. The plain text
