@@ -403,9 +403,14 @@ class MatrixConnector extends BaseConnector<RoomSession> {
         // Only send the new delta (content we haven't sent yet)
         if (fullOutput.length > lastSentLength) {
           const delta = fullOutput.slice(lastSentLength)
-          streamedOutputLengths.set(toolKey, fullOutput.length)
-          await this.sendMessage(roomId, delta.trim())
-          this.log(`[STREAM] Sent delta (${delta.length} chars, total: ${fullOutput.length})`)
+          const trimmedDelta = delta.trim()
+          if (trimmedDelta) {
+            streamedOutputLengths.set(toolKey, fullOutput.length)
+            // Also track in sentToolOutputs to prevent duplicate in final result
+            sentToolOutputs.add(trimmedDelta.slice(0, 100))
+            await this.sendMessage(roomId, trimmedDelta)
+            this.log(`[STREAM] Sent delta (${delta.length} chars, total: ${fullOutput.length})`)
+          }
         }
       }
     }

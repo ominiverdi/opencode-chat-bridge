@@ -252,13 +252,25 @@ export class ACPClient extends EventEmitter {
   private handlePermissionRequest(msg: any): void {
     const params = msg.params
     const toolCall = params.toolCall || {}
-    const title = toolCall.title || "unknown"
+    const title = toolCall.title || params.title || "unknown"
     const rawInput = toolCall.rawInput || {}
-    // Path can be in rawInput.filepath, rawInput.filePath, or locations
-    const path = rawInput.filepath || rawInput.filePath || rawInput.path || 
-                 toolCall.locations?.[0]?.path || "unknown path"
+    
+    // Path can be in many places - check all possibilities
+    const path = rawInput.filepath || rawInput.filePath || rawInput.path ||
+                 rawInput.directory || rawInput.dir ||
+                 toolCall.locations?.[0]?.path ||
+                 params.path || params.directory ||
+                 // For external_directory, try to extract from title or description
+                 (title.includes("external_directory") && rawInput.command 
+                   ? `(command: ${rawInput.command.slice(0, 50)}...)` 
+                   : null) ||
+                 // Last resort: stringify rawInput to see what's there
+                 (Object.keys(rawInput).length > 0 
+                   ? JSON.stringify(rawInput).slice(0, 100) 
+                   : "unknown path")
     
     console.error(`[ACP] Permission requested: ${title} (${path}) - auto-rejecting`)
+    console.error(`[ACP] Full toolCall:`, JSON.stringify(toolCall, null, 2).slice(0, 500))
     
     // Emit an event so the connector can show the user what happened
     this.emit("permission_rejected", {
