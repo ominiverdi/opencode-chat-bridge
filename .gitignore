@@ -11,6 +11,10 @@ dist/
 config.json
 !config.example.json
 
+# OpenCode local config (may contain secrets from MCP environment blocks)
+opencode.json
+!opencode.example.json
+
 # OpenCode local data
 .opencode/
 
