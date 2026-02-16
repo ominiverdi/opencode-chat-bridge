@@ -30,6 +30,15 @@
     "ignoreUsers": []
   },
   
+  "mattermost": {
+    "enabled": false,
+    "url": "{env:MATTERMOST_URL}",
+    "token": "{env:MATTERMOST_TOKEN}",
+    "teamName": "",
+    "ignoreChannels": [],
+    "ignoreUsers": []
+  },
+
   "discord": {
     "enabled": false,
     "token": "{env:DISCORD_TOKEN}"

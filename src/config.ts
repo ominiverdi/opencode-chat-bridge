@@ -25,6 +25,15 @@ export interface MatrixConfig {
   formatHtml: boolean
 }
 
+export interface MattermostConfig {
+  enabled: boolean
+  url: string            // Mattermost server URL (e.g., https://mattermost.example.com)
+  token: string          // Bot access token
+  teamName: string       // Team to connect to (URL slug, e.g., "myteam")
+  ignoreChannels: string[] // Channel IDs to ignore
+  ignoreUsers: string[]    // User IDs to ignore
+}
+
 export interface WhatsAppConfig {
   enabled: boolean
   authFolder: string
@@ -40,6 +49,7 @@ export interface ChatBridgeConfig {
   modes: Record<string, string>
   streamTools: string[]  // Tools to stream output for (e.g., ["bash"]), empty = none
   matrix: MatrixConfig
+  mattermost: MattermostConfig
   whatsapp: WhatsAppConfig
 }
 
@@ -68,6 +78,14 @@ const defaultConfig: ChatBridgeConfig = {
     ignoreRooms: [],
     ignoreUsers: [],
     formatHtml: false
+  },
+  mattermost: {
+    enabled: false,
+    url: "",
+    token: "",
+    teamName: "",
+    ignoreChannels: [],
+    ignoreUsers: [],
   },
   whatsapp: {
     enabled: false,
