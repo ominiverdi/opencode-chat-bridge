@@ -117,6 +117,7 @@ interface ChannelSession extends BaseSession {
 class MattermostConnector extends BaseConnector<ChannelSession> {
   private ws: WebSocket | null = null
   private botUserId: string = ""
+  private botUsername: string = ""
   private wsSeq: number = 1
   private reconnectAttempts: number = 0
   private maxReconnectAttempts: number = 10
@@ -159,7 +160,11 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
     try {
       const me = await mmApi("GET", "/users/me")
       this.botUserId = me.id
+      this.botUsername = me.username
       console.log(`  Bot user: @${me.username} (${me.id})`)
+      if (config.mattermost.respondToMentions) {
+        console.log(`  Responds to: trigger "${TRIGGER}" and @${me.username} mentions`)
+      }
     } catch (err) {
       this.logError("Failed to authenticate with Mattermost:", err)
       process.exit(1)
@@ -341,12 +346,17 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
 
       this.log(`[MSG] ${senderName}: ${message}`)
 
-      // Extract query based on trigger or DM
+      // Extract query based on trigger, @mention, or DM
       let query = ""
+      const mention = `@${this.botUsername}`
       if (message.startsWith(TRIGGER + " ")) {
         query = message.slice(TRIGGER.length + 1).trim()
       } else if (message.startsWith(TRIGGER)) {
         query = message.slice(TRIGGER.length).trim()
+      } else if (config.mattermost.respondToMentions && message.startsWith(mention + " ")) {
+        query = message.slice(mention.length + 1).trim()
+      } else if (config.mattermost.respondToMentions && message.startsWith(mention)) {
+        query = message.slice(mention.length).trim()
       } else if (isDM) {
         // In DM channels, respond to all messages without trigger
         query = message
