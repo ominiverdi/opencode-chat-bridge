@@ -17,6 +17,7 @@
     "matrix": "bun connectors/matrix.ts",
     "slack": "bun connectors/slack.ts",
     "whatsapp": "bun connectors/whatsapp.ts",
+    "mattermost": "bun connectors/mattermost.ts",
     "cli": "bun src/cli.ts"
   },
   "keywords": [

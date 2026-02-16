@@ -381,7 +381,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
         }
         
         // Use content hash to prevent ANY duplicate content
-        const contentHash = trimmed.slice(0, 150)
+        const contentHash = trimmed.slice(0, 100)
         if (sentToolOutputs.has(contentHash)) {
           this.log(`[RESULT] Skipping duplicate content`)
           return
@@ -405,7 +405,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
         if (shouldStream) {
           const output = update.partialOutput.trim()
           if (output) {
-            const contentHash = output.slice(0, 150)
+            const contentHash = output.slice(0, 100)
             if (!sentToolOutputs.has(contentHash)) {
               sentToolOutputs.add(contentHash)
               await this.sendMessage(roomId, output)

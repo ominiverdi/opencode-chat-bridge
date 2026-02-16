@@ -22,6 +22,10 @@ Uses Socket Mode for real-time messaging without requiring a public server.
 
 Uses Baileys for WebSocket-based communication. Scan a QR code once to link.
 
+### Mattermost
+
+Uses the Mattermost REST API v4 and WebSocket for real-time events. Zero external dependencies -- uses native `fetch` and `WebSocket`. Supports DMs, file uploads, and message splitting.
+
 ### Discord
 
 <img src="images/discord.png" width="400" alt="Discord connector" />
@@ -43,10 +47,11 @@ Run a connector:
 bun connectors/matrix.ts
 bun connectors/slack.ts
 bun connectors/whatsapp.ts
+bun connectors/mattermost.ts
 bun connectors/discord.ts
 ```
 
-See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md)
+See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md)
 
 ## Usage
 
@@ -156,6 +161,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 opencode-chat-bridge/
   connectors/
     discord.ts
+    mattermost.ts
     matrix.ts
     slack.ts
     whatsapp.ts

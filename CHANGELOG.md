@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Mattermost connector** - New connector using Mattermost REST API v4 and
+  WebSocket for real-time events. Zero external dependencies (uses native
+  `fetch` and `WebSocket`). Features: trigger-based responses in channels,
+  DM support without trigger, image file uploads, long message splitting,
+  tool output streaming, automatic reconnection with backoff.
 - **HTML message formatting for Matrix** - New `formatHtml` config option converts
   markdown responses to HTML using `marked`, sending both `formatted_body` (HTML)
   and `body` (plain text fallback) per the Matrix spec. Tables, bold, lists, and
