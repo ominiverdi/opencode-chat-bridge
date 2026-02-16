@@ -24,7 +24,7 @@ Uses Baileys for WebSocket-based communication. Scan a QR code once to link.
 
 ### Mattermost
 
-Uses the Mattermost REST API v4 and WebSocket for real-time events. Zero external dependencies -- uses native `fetch` and `WebSocket`. Supports DMs, file uploads, and message splitting.
+Uses the Mattermost REST API v4 and WebSocket for real-time events. Zero external dependencies -- uses native `fetch` and `WebSocket`. Works with any Mattermost instance (self-hosted or cloud). Supports @mentions, DMs, file uploads, and message splitting.
 
 ### Discord
 
@@ -199,6 +199,14 @@ await client.disconnect()
 
 ## Documentation
 
+Setup guides:
+- [Matrix](docs/MATRIX_SETUP.md)
+- [Slack](docs/SLACK_SETUP.md)
+- [Mattermost](docs/MATTERMOST_SETUP.md)
+- [WhatsApp](docs/WHATSAPP_SETUP.md)
+- [Discord](docs/DISCORD_SETUP.md)
+
+Reference:
 - [Configuration](docs/CONFIGURATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security](docs/SECURITY.md)
