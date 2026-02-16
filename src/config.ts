@@ -30,6 +30,7 @@ export interface MattermostConfig {
   url: string            // Mattermost server URL (e.g., https://mattermost.example.com)
   token: string          // Bot access token
   teamName: string       // Team to connect to (URL slug, e.g., "myteam")
+  respondToMentions: boolean // Respond when @mentioned (in addition to trigger)
   ignoreChannels: string[] // Channel IDs to ignore
   ignoreUsers: string[]    // User IDs to ignore
 }
@@ -84,6 +85,7 @@ const defaultConfig: ChatBridgeConfig = {
     url: "",
     token: "",
     teamName: "",
+    respondToMentions: true,
     ignoreChannels: [],
     ignoreUsers: [],
   },

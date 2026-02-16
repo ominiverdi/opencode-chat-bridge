@@ -35,6 +35,7 @@
     "url": "{env:MATTERMOST_URL}",
     "token": "{env:MATTERMOST_TOKEN}",
     "teamName": "",
+    "respondToMentions": true,
     "ignoreChannels": [],
     "ignoreUsers": []
   },
