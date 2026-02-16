@@ -612,6 +612,8 @@ SESSION_BASE_DIR=/path/to/sessions
     C0XYZ789/     # Another channel session
   matrix/
     _room1_server.org/  # Matrix room session (special chars sanitized)
+  mattermost/
+    abc123def456/  # Mattermost channel session
   whatsapp/
     1234567890/   # WhatsApp chat session
 ```
@@ -637,6 +639,11 @@ Users can manage their sessions via chat:
 - `!oc /help` - Show available commands
 
 **Matrix:**
+- `!oc /status` - Show session info
+- `!oc /clear` or `!oc /reset` - Clear session history
+- `!oc /help` - Show available commands
+
+**Mattermost:**
 - `!oc /status` - Show session info
 - `!oc /clear` or `!oc /reset` - Clear session history
 - `!oc /help` - Show available commands
