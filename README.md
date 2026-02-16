@@ -2,6 +2,20 @@
 
 Bridge [OpenCode](https://opencode.ai) to chat platforms with permission-based security.
 
+## Table of Contents
+
+- [Connectors](#connectors) -- Matrix, Slack, WhatsApp, Mattermost, Discord
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Permissions](#permissions)
+- [MCP Servers](#mcp-servers)
+- [AGENTS.md](#agentsmd)
+- [Security](#security)
+- [Project Structure](#project-structure)
+- [Library Usage](#library-usage)
+- [Requirements](#requirements)
+- [Documentation](#documentation)
+
 ## Connectors
 
 ### Matrix
