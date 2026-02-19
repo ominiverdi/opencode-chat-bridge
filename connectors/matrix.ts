@@ -314,6 +314,8 @@ class MatrixConnector extends BaseConnector<RoomSession> {
   // ---------------------------------------------------------------------------
 
   private async processQuery(roomId: string, sender: string, query: string): Promise<void> {
+    const startTime = Date.now()
+
     // Get or create session
     const session = await this.getOrCreateSession(roomId, (client) =>
       this.createSession(client)
@@ -335,15 +337,19 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     let responseBuffer = ""
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
+    let toolCallCount = 0
     
     // Track what we've already sent to avoid duplication (by content hash)
     const sentToolOutputs = new Set<string>()
 
     // Activity events - show what the AI is doing
     const activityHandler = async (activity: ActivityEvent) => {
-      if (activity.type === "tool_start" && activity.message !== lastActivityMessage) {
-        lastActivityMessage = activity.message
-        await this.sendNotice(roomId, `> ${activity.message}`)
+      if (activity.type === "tool_start") {
+        toolCallCount++
+        if (activity.message !== lastActivityMessage) {
+          lastActivityMessage = activity.message
+          await this.sendNotice(roomId, `> ${activity.message}`)
+        }
       }
     }
 
@@ -472,8 +478,14 @@ class MatrixConnector extends BaseConnector<RoomSession> {
           await this.sendMessage(roomId, cleanResponse)
         }
       }
+      // Log elapsed time
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+      const outChars = cleanResponse ? cleanResponse.length : 0
+      const tools = toolCallCount > 0 ? `, ${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}` : ""
+      this.log(`[DONE] ${elapsed}s (${outChars} chars${tools})`)
     } catch (err) {
-      this.logError("Error processing query:", err)
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+      this.logError(`[FAIL] ${elapsed}s:`, err)
       await this.sendMessage(roomId, "Sorry, something went wrong processing your request.")
     } finally {
       client.off("activity", activityHandler)

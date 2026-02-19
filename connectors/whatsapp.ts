@@ -252,6 +252,8 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
   // ---------------------------------------------------------------------------
 
   private async processQuery(chatId: string, phoneNumber: string, query: string): Promise<void> {
+    const startTime = Date.now()
+
     // Get or create session
     const session = await this.getOrCreateSession(chatId, (client) =>
       this.createSession(client)
@@ -273,12 +275,16 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     let responseBuffer = ""
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
+    let toolCallCount = 0
 
     // Activity events
     const activityHandler = async (activity: ActivityEvent) => {
-      if (activity.type === "tool_start" && activity.message !== lastActivityMessage) {
-        lastActivityMessage = activity.message
-        await this.sendMessage(chatId, `> ${activity.message}`)
+      if (activity.type === "tool_start") {
+        toolCallCount++
+        if (activity.message !== lastActivityMessage) {
+          lastActivityMessage = activity.message
+          await this.sendMessage(chatId, `> ${activity.message}`)
+        }
       }
     }
 
@@ -336,8 +342,14 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
         session.outputChars += cleanResponse.length
         await this.sendMessage(chatId, cleanResponse)
       }
+      // Log elapsed time
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+      const outChars = cleanResponse ? cleanResponse.length : 0
+      const tools = toolCallCount > 0 ? `, ${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}` : ""
+      this.log(`[DONE] ${elapsed}s (${outChars} chars${tools})`)
     } catch (err) {
-      this.logError("Error processing query:", err)
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+      this.logError(`[FAIL] ${elapsed}s:`, err)
       await this.sendMessage(chatId, "Sorry, something went wrong processing your request.")
     } finally {
       client.off("activity", activityHandler)
