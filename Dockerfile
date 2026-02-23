@@ -1,6 +1,7 @@
 # OpenCode Chat Bridge
 # Multi-platform chat bridge for OpenCode AI
-FROM oven/bun:1-alpine
+# Using Debian-based image for glibc (required by Matrix crypto)
+FROM oven/bun:1-debian
 
 LABEL org.opencontainers.image.source="https://github.com/ominiverdi/opencode-chat-bridge"
 LABEL org.opencontainers.image.description="Bridge OpenCode AI to chat platforms (Discord, Slack, Matrix, WhatsApp)"
@@ -8,9 +9,17 @@ LABEL org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app
 
+# Install curl and OpenCode
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://opencode.ai/install | bash && \
+    ln -s /root/.opencode/bin/opencode /usr/local/bin/opencode && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first (cached layer)
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+RUN bun install --frozen-lockfile && \
+    cd node_modules/@matrix-org/matrix-sdk-crypto-nodejs && \
+    node download-lib.js
 
 # Copy source files
 COPY src/ ./src/
