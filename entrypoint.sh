@@ -1,6 +1,14 @@
 #!/bin/sh
 set -e
 
+# Install OpenCode if not present
+if [ ! -f /root/.opencode/bin/opencode ]; then
+  echo "[DOCKER] Installing OpenCode..."
+  curl -fsSL https://opencode.ai/install | bash
+  echo "[DOCKER] OpenCode installed"
+fi
+export PATH="/root/.opencode/bin:$PATH"
+
 case "$CONNECTOR" in
   discord)
     exec bun connectors/discord.ts
