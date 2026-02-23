@@ -2,6 +2,8 @@
 
 Run OpenCode Chat Bridge with Docker - no Bun or Node.js installation required.
 
+**Note:** OpenCode is installed at container startup (not baked into the image), so you always get the latest version. First startup takes ~10 seconds longer. Use a persistent volume to avoid re-downloading on restart.
+
 ## Quick Start
 
 ```bash
@@ -92,12 +94,55 @@ docker-compose up -d whatsapp
 
 The auth session is persisted in the `whatsapp-auth` volume.
 
+## AI Provider Configuration
+
+OpenCode supports multiple AI providers. Set your API key as an environment variable:
+
+```bash
+# Anthropic (Claude)
+docker run ... -e ANTHROPIC_API_KEY=sk-ant-xxx ...
+
+# OpenAI
+docker run ... -e OPENAI_API_KEY=sk-xxx ...
+
+# Google
+docker run ... -e GOOGLE_API_KEY=xxx ...
+```
+
+You also need an `opencode.json` config file specifying the model:
+
+```json
+{
+  "model": "anthropic/claude-sonnet-4-20250514"
+}
+```
+
+Mount it into the container:
+
+```bash
+docker run ... -v /path/to/opencode.json:/app/opencode.json:ro ...
+```
+
+For local LLM servers (llama.cpp, Ollama, etc.), use `--network=host` to access localhost.
+
 ## Persistent Storage
 
-Docker volumes store session data:
+Docker volumes store runtime data:
 
 - `sessions` - Conversation history for all connectors
 - `whatsapp-auth` - WhatsApp authentication data
+- `opencode` - OpenCode binary (optional, avoids re-download on restart)
+- `opencode-data` - OpenCode database and settings
+
+Recommended volume mounts:
+
+```bash
+docker run ... \
+  -v opencode-sessions:/data/sessions \
+  -v opencode-bin:/root/.opencode \
+  -v opencode-data:/root/.local/share/opencode \
+  ...
+```
 
 To clear sessions:
 

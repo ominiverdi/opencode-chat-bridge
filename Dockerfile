@@ -9,10 +9,8 @@ LABEL org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app
 
-# Install curl and OpenCode
+# Install curl (OpenCode installed at runtime via entrypoint)
 RUN apt-get update && apt-get install -y curl && \
-    curl -fsSL https://opencode.ai/install | bash && \
-    ln -s /root/.opencode/bin/opencode /usr/local/bin/opencode && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies first (cached layer)
