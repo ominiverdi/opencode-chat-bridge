@@ -94,9 +94,54 @@ docker-compose up -d whatsapp
 
 The auth session is persisted in the `whatsapp-auth` volume.
 
+## Configuration Files
+
+The bot uses three configuration files. Mount them into the container:
+
+```bash
+docker run ... \
+  -v /path/to/opencode.json:/app/opencode.json:ro \
+  -v /path/to/chat-bridge.json:/app/chat-bridge.json:ro \
+  -v /path/to/AGENTS.md:/app/AGENTS.md:ro \
+  ...
+```
+
+### opencode.json
+
+Model and AI provider configuration. See `opencode.example.json` for reference.
+
+```json
+{
+  "model": "anthropic/claude-sonnet-4-20250514"
+}
+```
+
+### chat-bridge.json
+
+Bot settings: trigger prefix, bot name, connector options. See `config.example.json` for reference.
+
+```json
+{
+  "botName": "mybot",
+  "trigger": "!bot",
+  "matrix": {
+    "enabled": true,
+    "homeserver": "https://matrix.org",
+    "userId": "{env:MATRIX_USER_ID}",
+    "password": "{env:MATRIX_PASSWORD}"
+  }
+}
+```
+
+Environment variables are substituted using `{env:VAR_NAME}` syntax.
+
+### AGENTS.md
+
+System prompt and instructions for the AI. This file is copied to each session directory.
+
 ## AI Provider Configuration
 
-OpenCode supports multiple AI providers. Set your API key as an environment variable:
+Set your API key as an environment variable:
 
 ```bash
 # Anthropic (Claude)
@@ -107,20 +152,6 @@ docker run ... -e OPENAI_API_KEY=sk-xxx ...
 
 # Google
 docker run ... -e GOOGLE_API_KEY=xxx ...
-```
-
-You also need an `opencode.json` config file specifying the model:
-
-```json
-{
-  "model": "anthropic/claude-sonnet-4-20250514"
-}
-```
-
-Mount it into the container:
-
-```bash
-docker run ... -v /path/to/opencode.json:/app/opencode.json:ro ...
 ```
 
 For local LLM servers (llama.cpp, Ollama, etc.), use `--network=host` to access localhost.
