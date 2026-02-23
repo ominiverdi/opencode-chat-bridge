@@ -67,6 +67,38 @@ bun connectors/discord.ts
 
 See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md)
 
+## Docker
+
+Run with Docker (no Bun/Node installation needed):
+
+```bash
+# Pull the image
+docker pull lbecchi/opencode-chat-bridge
+
+# Run a connector
+docker run -e CONNECTOR=discord -e DISCORD_TOKEN=your_token lbecchi/opencode-chat-bridge
+docker run -e CONNECTOR=slack -e SLACK_BOT_TOKEN=xoxb-... -e SLACK_APP_TOKEN=xapp-... lbecchi/opencode-chat-bridge
+docker run -e CONNECTOR=matrix -e MATRIX_HOMESERVER=https://matrix.org -e MATRIX_USER_ID=@bot:matrix.org -e MATRIX_PASSWORD=... lbecchi/opencode-chat-bridge
+```
+
+Or use docker-compose:
+
+```bash
+# Clone and configure
+git clone https://github.com/ominiverdi/opencode-chat-bridge
+cd opencode-chat-bridge
+cp .env.example .env  # Edit with your credentials
+
+# Run specific connectors
+docker-compose up discord
+docker-compose up slack matrix
+
+# Run all connectors
+docker-compose up
+```
+
+See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for detailed instructions.
+
 ## Usage
 
 Use the trigger prefix (default: `!oc`) or mention the bot:
