@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Git
+.git/
+.gitignore
+
+# Local config (use env vars instead)
+.env
+opencode.json
+chat-bridge.json
+
+# Development files
+.opencode/
+.ruff_cache/
+tests/
+*.log
+logs/
+
+# Auth data (mounted as volumes)
+.whatsapp-auth/
+
+# Documentation
+docs/
+images/
+*.md
+!README.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
