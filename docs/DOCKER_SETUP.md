@@ -2,7 +2,21 @@
 
 Run OpenCode Chat Bridge with Docker - no Bun or Node.js installation required.
 
-**Note:** OpenCode is installed at container startup (not baked into the image), so you always get the latest version. First startup takes ~10 seconds longer. Use a persistent volume to avoid re-downloading on restart.
+## OpenCode Updates
+
+OpenCode is downloaded fresh on each container start, ensuring you always have the latest version. First startup takes ~10 seconds longer.
+
+To persist OpenCode and avoid re-downloading on restart:
+
+```bash
+docker run ... -v opencode-bin:/root/.opencode ...
+```
+
+To update a persisted installation, remove the volume:
+
+```bash
+docker volume rm opencode-bin
+```
 
 ## Quick Start
 
