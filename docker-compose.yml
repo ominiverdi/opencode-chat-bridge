@@ -1,0 +1,59 @@
+# OpenCode Chat Bridge - Docker Compose
+# Run specific connectors: docker-compose up discord slack
+# Run all: docker-compose up
+
+x-common: &common
+  build: .
+  image: lbecchi/opencode-chat-bridge:latest
+  restart: unless-stopped
+  volumes:
+    - sessions:/data/sessions
+
+services:
+  discord:
+    <<: *common
+    container_name: opencode-discord
+    environment:
+      - CONNECTOR=discord
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+
+  slack:
+    <<: *common
+    container_name: opencode-slack
+    environment:
+      - CONNECTOR=slack
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+
+  matrix:
+    <<: *common
+    container_name: opencode-matrix
+    environment:
+      - CONNECTOR=matrix
+      - MATRIX_HOMESERVER=${MATRIX_HOMESERVER}
+      - MATRIX_USER_ID=${MATRIX_USER_ID}
+      - MATRIX_PASSWORD=${MATRIX_PASSWORD}
+      - MATRIX_ACCESS_TOKEN=${MATRIX_ACCESS_TOKEN:-}
+
+  whatsapp:
+    <<: *common
+    container_name: opencode-whatsapp
+    environment:
+      - CONNECTOR=whatsapp
+      - WHATSAPP_AUTH_DIR=/data/whatsapp-auth
+    volumes:
+      - sessions:/data/sessions
+      - whatsapp-auth:/data/whatsapp-auth
+
+  mattermost:
+    <<: *common
+    container_name: opencode-mattermost
+    environment:
+      - CONNECTOR=mattermost
+      - MATTERMOST_URL=${MATTERMOST_URL}
+      - MATTERMOST_TOKEN=${MATTERMOST_TOKEN}
+      - MATTERMOST_TEAM=${MATTERMOST_TEAM:-}
+
+volumes:
+  sessions:
+  whatsapp-auth:
