@@ -95,3 +95,73 @@ export class ImageHandler {
     }
   }
 }
+
+// =============================================================================
+// Document Handling
+// =============================================================================
+
+import { extractDocPaths, removeDocMarkers } from "./session-utils"
+
+/**
+ * Callback type for platform-specific document uploads
+ */
+export type DocUploadCallback = (docPath: string) => Promise<void>
+
+/**
+ * Handles document extraction and upload for chat connectors
+ */
+export class DocHandler {
+  /**
+   * Process response buffers for documents, upload them, and return cleaned text
+   * 
+   * Documents are marked in tool results with:
+   * [DOCLIBRARY_DOC]/path/to/file.pdf[/DOCLIBRARY_DOC]
+   * 
+   * @param responseBuffer - The LLM response text
+   * @param toolResultsBuffer - Tool results (may contain document markers)
+   * @param uploadFn - Platform-specific upload callback
+   * @returns Cleaned response text with document markers removed
+   */
+  static async processResponse(
+    responseBuffer: string,
+    toolResultsBuffer: string,
+    uploadFn: DocUploadCallback
+  ): Promise<string> {
+    const uploadedPaths = new Set<string>()
+    
+    // Extract from tool results (primary source)
+    const toolPaths = extractDocPaths(toolResultsBuffer)
+    for (const docPath of toolPaths) {
+      if (fs.existsSync(docPath)) {
+        console.log(`[DOC] Uploading from tool result: ${docPath}`)
+        try {
+          await uploadFn(docPath)
+          uploadedPaths.add(docPath)
+        } catch (err) {
+          console.error(`[DOC] Upload failed: ${docPath}`, err)
+        }
+      } else {
+        console.warn(`[DOC] File not found: ${docPath}`)
+      }
+    }
+    
+    // Extract from response (secondary source, model might echo path)
+    const responsePaths = extractDocPaths(responseBuffer)
+    for (const docPath of responsePaths) {
+      if (uploadedPaths.has(docPath)) continue
+      
+      if (fs.existsSync(docPath)) {
+        console.log(`[DOC] Uploading from response: ${docPath}`)
+        try {
+          await uploadFn(docPath)
+          uploadedPaths.add(docPath)
+        } catch (err) {
+          console.error(`[DOC] Upload failed: ${docPath}`, err)
+        }
+      }
+    }
+    
+    // Return cleaned response
+    return removeDocMarkers(responseBuffer)
+  }
+}

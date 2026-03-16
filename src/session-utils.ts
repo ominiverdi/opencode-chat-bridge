@@ -298,3 +298,50 @@ export function sanitizeServerPaths(text: string): string {
     (match, filename) => filename
   )
 }
+
+// =============================================================================
+// Document Marker Utilities
+// =============================================================================
+
+/**
+ * Document marker format used by doclibrary MCP server
+ * Format: [DOCLIBRARY_DOC]/path/to/file.pdf[/DOCLIBRARY_DOC]
+ */
+const DOC_MARKER_REGEX = /\[DOCLIBRARY_DOC\]([^\[]+)\[\/DOCLIBRARY_DOC\]/gi
+
+/**
+ * Extract document file paths from text containing document markers
+ * 
+ * Supports:
+ * - [DOCLIBRARY_DOC]/path/to/file.pdf[/DOCLIBRARY_DOC] (doclibrary)
+ * 
+ * @param text - Text that may contain document markers
+ * @returns Array of file paths extracted
+ */
+export function extractDocPaths(text: string): string[] {
+  const paths: string[] = []
+  let match: RegExpExecArray | null
+  
+  DOC_MARKER_REGEX.lastIndex = 0
+  
+  while ((match = DOC_MARKER_REGEX.exec(text)) !== null) {
+    const docPath = match[1].trim()
+    if (docPath && !paths.includes(docPath)) {
+      paths.push(docPath)
+    }
+  }
+  
+  return paths
+}
+
+/**
+ * Remove all document markers from text
+ * 
+ * @param text - Text containing document markers
+ * @returns Text with document markers removed
+ */
+export function removeDocMarkers(text: string): string {
+  return text
+    .replace(/\[DOCLIBRARY_DOC\][^\[]+\[\/DOCLIBRARY_DOC\]/gi, "")
+    .trim()
+}

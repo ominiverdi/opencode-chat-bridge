@@ -177,6 +177,7 @@ The connector has built-in rate limiting (default: 5 seconds between messages pe
 
 - **No group support** - Currently responds only to direct messages
 - **Text only input** - Voice messages and images from users are not processed
+- **Document output** - The bot can send PDF, CSV, XLSX and other documents as file attachments via `[DOCLIBRARY_DOC]` markers
 - **Single account** - One WhatsApp account per connector instance
 
 ## Architecture
