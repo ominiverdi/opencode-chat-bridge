@@ -17,7 +17,9 @@ export {
   getSessionBaseDir, 
   estimateTokens,
   extractImagePaths,
+  extractDocPaths,
   removeImageMarkers,
+  removeDocMarkers,
   sanitizeServerPaths,
   copyOpenCodeConfig,
   type SessionConfig 
@@ -34,4 +36,4 @@ export {
   type ConnectorConfig,
 } from "./connector-base"
 
-export { ImageHandler, type ImageUploadCallback } from "./image-handler"
+export { ImageHandler, type ImageUploadCallback, DocHandler, type DocUploadCallback } from "./image-handler"

@@ -32,7 +32,9 @@ import {
   BaseConnector,
   type BaseSession,
   extractImagePaths,
+  extractDocPaths,
   removeImageMarkers,
+  removeDocMarkers,
   sanitizeServerPaths,
 } from "../src"
 
@@ -336,8 +338,29 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
         }
       }
 
+      // Process documents from tool results
+      const uploadedDocPaths = new Set<string>()
+      const toolDocPaths = extractDocPaths(toolResultsBuffer)
+      for (const docPath of toolDocPaths) {
+        if (fs.existsSync(docPath)) {
+          this.log(`Uploading document from tool result: ${docPath}`)
+          await this.sendDocumentFromFile(chatId, docPath)
+          uploadedDocPaths.add(docPath)
+        }
+      }
+
+      // Process documents from response (model might echo paths)
+      const responseDocPaths = extractDocPaths(responseBuffer)
+      for (const docPath of responseDocPaths) {
+        if (uploadedDocPaths.has(docPath)) continue
+        if (fs.existsSync(docPath)) {
+          this.log(`Uploading document from response: ${docPath}`)
+          await this.sendDocumentFromFile(chatId, docPath)
+        }
+      }
+
       // Clean response and send
-      const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
+      const cleanResponse = sanitizeServerPaths(removeDocMarkers(removeImageMarkers(responseBuffer)))
       if (cleanResponse) {
         session.outputChars += cleanResponse.length
         await this.sendMessage(chatId, cleanResponse)
@@ -399,6 +422,40 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       this.log(`Sent image from file to ${chatId}: ${filePath}`)
     } catch (err) {
       this.logError(`Failed to send image from file to ${chatId}:`, err)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // WhatsApp-specific: Document sending
+  // ---------------------------------------------------------------------------
+
+  private async sendDocumentFromFile(chatId: string, filePath: string): Promise<void> {
+    if (!this.sock) return
+
+    try {
+      const buffer = fs.readFileSync(filePath)
+      const fileName = path.basename(filePath)
+      const ext = path.extname(filePath).toLowerCase()
+      const mimeTypes: Record<string, string> = {
+        ".pdf": "application/pdf",
+        ".csv": "text/csv",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xls": "application/vnd.ms-excel",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".txt": "text/plain",
+        ".json": "application/json",
+        ".zip": "application/zip",
+      }
+
+      await this.sock.sendMessage(chatId, {
+        document: buffer,
+        mimetype: mimeTypes[ext] || "application/octet-stream",
+        fileName: fileName,
+      })
+      this.log(`Sent document to ${chatId}: ${filePath}`)
+    } catch (err) {
+      this.logError(`Failed to send document to ${chatId}:`, err)
     }
   }
 }

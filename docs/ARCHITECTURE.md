@@ -227,9 +227,9 @@ client.on("tool", ({ name, status }) => {
 })
 ```
 
-### 4. Handle images from tool results
+### 4. Handle images and documents from tool results
 
-**Important:** Images from MCP tools come in tool results, NOT in response text chunks. You must listen to `update` events:
+**Important:** Images and documents from MCP tools come in tool results, NOT in response text chunks. You must listen to `update` events:
 
 ```typescript
 let toolResultsBuffer = ""
@@ -252,7 +252,21 @@ for (const match of matches) {
 }
 ```
 
-The `chunk` event only receives `agent_message_chunk` updates (the LLM's text response). Tool results with image paths are sent via `tool_call_update` events with status `completed`.
+The `chunk` event only receives `agent_message_chunk` updates (the LLM's text response). Tool results with image/document paths are sent via `tool_call_update` events with status `completed`.
+
+Documents use the same pattern with `[DOCLIBRARY_DOC]` markers:
+
+```typescript
+// After prompt completes, also check for document markers
+const docRegex = /\[DOCLIBRARY_DOC\]([^\[]+)\[\/DOCLIBRARY_DOC\]/gi
+const docMatches = toolResultsBuffer.matchAll(docRegex)
+for (const match of docMatches) {
+  const docPath = match[1].trim()
+  if (fs.existsSync(docPath)) {
+    sendDocumentToChat(docPath)  // platform-specific: PDF, CSV, etc.
+  }
+}
+```
 
 ## Session Management
 

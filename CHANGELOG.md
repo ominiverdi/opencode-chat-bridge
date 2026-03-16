@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Document attachment support (WhatsApp)** - New `[DOCLIBRARY_DOC]` marker and
+  `sendDocumentFromFile` method for sending PDF, CSV, XLSX, and other document
+  types as native WhatsApp file attachments. Same pattern as image handling.
+  Shared utilities (`extractDocPaths`, `removeDocMarkers`) and reusable
+  `DocHandler` class available for other connectors.
 - **Mattermost connector** - New connector using Mattermost REST API v4 and
   WebSocket for real-time events. Zero external dependencies (uses native
   `fetch` and `WebSocket`). Features: trigger-based responses in channels,
