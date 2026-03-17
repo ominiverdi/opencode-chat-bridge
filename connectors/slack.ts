@@ -68,14 +68,6 @@ function resolveSessionRetentionMins(env: NodeJS.ProcessEnv): number {
   return 30
 }
 
-export function isSessionStale(
-  basisTime: Date,
-  retentionMins: number,
-  nowMs: number = Date.now()
-): boolean {
-  return (nowMs - basisTime.getTime()) / 60000 >= retentionMins
-}
-
 export function shouldHandleThreadMessage(input: {
   text: string
   threadTs?: string
@@ -169,7 +161,8 @@ export async function postThreadReply(
 // =============================================================================
 
 interface ChannelSession extends BaseSession {
-  // Slack-specific fields can be added here if needed
+  channelId: string
+  threadTs: string
 }
 
 // =============================================================================
@@ -179,6 +172,8 @@ interface ChannelSession extends BaseSession {
 export class SlackConnector extends BaseConnector<ChannelSession> {
   private app: App | null = null
   private processedEvents = new Map<string, number>()
+  private closedThreadContexts = new Map<string, number>()
+  private expiryInterval: NodeJS.Timeout | null = null
 
   constructor() {
     super({
@@ -242,6 +237,11 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
         return
       }
 
+      if (this.isClosedThread(context.contextId)) {
+        this.log(`[THREAD_CLOSED] Ignoring message for closed context ${context.contextId}`)
+        return
+      }
+
       this.log(`[MENTION] ${context.userId} in ${context.contextId}: ${context.text}`)
 
       // Extract query (remove the mention)
@@ -281,6 +281,11 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
 
       if (this.isDuplicateEvent(context.dedupeId)) {
         this.log(`[DUPLICATE] Skipping ${context.dedupeId}`)
+        return
+      }
+
+      if (this.isClosedThread(context.contextId)) {
+        this.log(`[THREAD_CLOSED] Ignoring message for closed context ${context.contextId}`)
         return
       }
 
@@ -343,6 +348,11 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
         return
       }
 
+      if (this.isClosedThread(context.contextId)) {
+        this.log(`[THREAD_CLOSED] Ignoring message for closed context ${context.contextId}`)
+        return
+      }
+
       this.log(`[THREAD] ${context.userId} in ${context.contextId}: ${context.text}`)
 
       if (!this.checkRateLimit(context.userId)) return
@@ -351,11 +361,16 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
 
     // Start the app
     await this.app.start()
+    this.startSessionExpiryLoop()
     this.log("Started! Listening for messages...")
   }
 
   async stop(): Promise<void> {
     this.log("Stopping...")
+    if (this.expiryInterval) {
+      clearInterval(this.expiryInterval)
+      this.expiryInterval = null
+    }
     await this.disconnectAllSessions()
 
     if (this.app) {
@@ -425,33 +440,48 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     this.deleteSessionCacheDir(id)
   }
 
+  private startSessionExpiryLoop(): void {
+    if (this.expiryInterval) return
+
+    this.expiryInterval = setInterval(() => {
+      this.expireStaleSessions().catch((err) => {
+        this.logError("[SESSION_EXPIRE] Sweep failed:", err)
+      })
+    }, 15000)
+  }
+
   private async expireStaleSessions(): Promise<void> {
-    const stale: string[] = []
+    this.pruneClosedThreadContexts()
+
+    const stale: Array<{ id: string; session: ChannelSession }> = []
     for (const [id, session] of this.sessionManager.sessions) {
       if (this.sessionAgeMinutes(session) >= SESSION_RETENTION_MINS) {
-        stale.push(id)
+        stale.push({ id, session })
       }
     }
 
-    for (const id of stale) {
+    for (const { id, session } of stale) {
+      if (this.app) {
+        await this.sendThreadReply(this.app.client, session.channelId, session.threadTs, "Exiting the session, Ciao!")
+      }
       await this.evictSession(id)
-      this.log(`[SESSION_EXPIRE] ${id} aged out. Exiting the session, Ciao!`)
+      this.closedThreadContexts.set(id, Date.now())
+      this.log(`[SESSION_EXPIRE] ${id} aged out and closed`)
     }
   }
 
-  private async notifyAndExpireCurrentThreadIfStale(
-    context: SlackEventContext,
-    slackClient: any
-  ): Promise<void> {
-    const session = this.sessionManager.get(context.contextId)
-    if (!session) return
+  private isClosedThread(contextId: string): boolean {
+    return this.closedThreadContexts.has(contextId)
+  }
 
-    const basis = SESSION_RETENTION_MODE === "created_at" ? session.createdAt : session.lastActivity
-    if (!isSessionStale(basis, SESSION_RETENTION_MINS)) return
-
-    await this.evictSession(context.contextId)
-    await this.sendThreadReply(slackClient, context.channelId, context.replyThreadTs, "Exiting the session, Ciao!")
-    this.log(`[SESSION_EXPIRE] ${context.contextId} aged out and notified in thread`)
+  private pruneClosedThreadContexts(): void {
+    const cutoffMs = 24 * 60 * 60 * 1000
+    const now = Date.now()
+    for (const [id, closedAt] of this.closedThreadContexts) {
+      if (now - closedAt > cutoffMs) {
+        this.closedThreadContexts.delete(id)
+      }
+    }
   }
 
   private async getOrCreateThreadSession(context: SlackEventContext): Promise<ChannelSession | null> {
@@ -470,8 +500,6 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
   private async processQuery(context: SlackEventContext, query: string, slackClient: any): Promise<void> {
     const startTime = Date.now()
 
-    await this.notifyAndExpireCurrentThreadIfStale(context, slackClient)
-
     // Get or create session (keyed per thread)
     const session = await this.getOrCreateThreadSession(context)
 
@@ -486,6 +514,8 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     }
 
     // Update session stats
+    session.channelId = context.channelId
+    session.threadTs = context.replyThreadTs
     session.messageCount++
     session.lastActivity = new Date()
     session.inputChars += query.length
@@ -579,6 +609,8 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
   private createSession(client: ACPClient): ChannelSession {
     return {
       ...this.createBaseSession(client),
+      channelId: "",
+      threadTs: "",
     }
   }
 

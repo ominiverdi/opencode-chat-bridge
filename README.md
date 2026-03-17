@@ -295,7 +295,8 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 - Replies are forced through `chat.postMessage` with mandatory `thread_ts`
 - Duplicate event handling uses `${channel}:${ts}` idempotency keys
 - In-thread follow-ups no longer require repeated `@bot` mentions or trigger prefix
-- Expired sessions are closed with exit log: `Exiting the session, Ciao!`
+- Expired sessions auto-close on timer, post `Exiting the session, Ciao!` in-thread, and delete in-memory + on-disk cache
+- After auto-close, that same thread context is treated as closed (no further bot replies)
 
 **Tests added:**
 - Unit: `tests/unit/slack-thread-context.test.ts`
@@ -324,8 +325,10 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
    - Verify bot still responds in the same thread
 7. Retention timeout behavior
    - Set `SESSION_RETENTION_MINS=1` temporarily, restart service
-   - Wait >1 minute without activity in a thread, then message in that thread
-   - Verify a fresh context/session is used and logs include session expiry marker
+   - Start a thread and wait >1 minute without activity
+   - Verify bot posts `Exiting the session, Ciao!` in that thread automatically
+   - Verify cache for that thread is removed and logs include session expiry marker
+   - Verify further messages in that same thread get no bot response
 
 ### Edge cases & troubleshooting
 
@@ -333,6 +336,7 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 - If `thread_ts` is absent, connector uses `event.ts` as thread root.
 - DMs and MPIMs use same thread isolation logic (channel ID remains part of context ID).
 - Session expiry runs on event handling; no background cron is required.
+- Session expiry also runs on an internal timer sweep for autonomous expiry notifications.
 - Never hardcode secrets; use environment variables or systemd environment settings.
 
 ### Staying in sync with upstream
