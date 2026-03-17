@@ -33,7 +33,6 @@ import {
   removeImageMarkers,
   sanitizeServerPaths,
 } from "../src"
-import { getSessionDir, ensureSessionDir } from "../src/session-utils"
 
 // =============================================================================
 // Configuration
@@ -45,8 +44,6 @@ const TRIGGER = process.env.SLACK_TRIGGER || process.env.TRIGGER || "!oc"
 const SESSION_RETENTION_MINS = resolveSessionRetentionMins(process.env)
 const SESSION_RETENTION_MODE = (process.env.SESSION_RETENTION_MODE || "last_activity").toLowerCase()
 const RATE_LIMIT_SECONDS = 5
-const THREAD_ISOLATION = parseBooleanEnv(process.env.THREAD_ISOLATION, true)
-const THREAD_MIGRATE_FROM_CHANNEL = parseBooleanEnv(process.env.THREAD_MIGRATE_FROM_CHANNEL, false)
 
 export interface SlackEventContext {
   teamId: string
@@ -57,7 +54,6 @@ export interface SlackEventContext {
   threadTs?: string
   replyThreadTs: string
   contextId: string
-  legacyContextId: string
   dedupeId: string
 }
 
@@ -68,21 +64,7 @@ function resolveSessionRetentionMins(env: NodeJS.ProcessEnv): number {
     if (Number.isFinite(mins) && mins > 0) return mins
   }
 
-  const legacyDaysRaw = env.SESSION_RETENTION_DAYS
-  if (legacyDaysRaw) {
-    const days = parseFloat(legacyDaysRaw)
-    if (Number.isFinite(days) && days > 0) return Math.max(1, Math.floor(days * 24 * 60))
-  }
-
   return 30
-}
-
-export function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined) return fallback
-  const normalized = value.trim().toLowerCase()
-  if (["1", "true", "yes", "on"].includes(normalized)) return true
-  if (["0", "false", "no", "off"].includes(normalized)) return false
-  return fallback
 }
 
 export function shouldHandleThreadMessage(input: {
@@ -110,10 +92,6 @@ export function buildThreadContextId(teamId: string, channelId: string, threadTs
   return `${teamId}:${channelId}:${threadTsOrTs}`
 }
 
-export function buildLegacyChannelContextId(channelId: string): string {
-  return channelId
-}
-
 export function normalizeSlackEventContext(input: {
   teamId?: string
   channelId?: string
@@ -137,9 +115,7 @@ export function normalizeSlackEventContext(input: {
     throw new Error("Unable to determine Slack thread_ts")
   }
 
-  const contextId = THREAD_ISOLATION
-    ? buildThreadContextId(teamId, channelId, replyThreadTs)
-    : buildLegacyChannelContextId(channelId)
+  const contextId = buildThreadContextId(teamId, channelId, replyThreadTs)
 
   return {
     teamId,
@@ -150,7 +126,6 @@ export function normalizeSlackEventContext(input: {
     threadTs: input.threadTs,
     replyThreadTs,
     contextId,
-    legacyContextId: buildLegacyChannelContextId(channelId),
     dedupeId: `${channelId}:${eventTs}`,
   }
 }
@@ -434,40 +409,8 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     }
   }
 
-  private async getOrCreateSessionWithMigration(context: SlackEventContext): Promise<ChannelSession | null> {
-    if (!THREAD_ISOLATION) {
-      return await this.getOrCreateSession(context.contextId, (client) => this.createSession(client))
-    }
-
-    if (THREAD_MIGRATE_FROM_CHANNEL) {
-      const legacySession = this.sessionManager.get(context.legacyContextId)
-      if (!this.sessionManager.has(context.contextId) && legacySession) {
-        this.sessionManager.set(context.contextId, legacySession)
-        this.sessionManager.delete(context.legacyContextId)
-        this.log(`[MIGRATE] Memory session ${context.legacyContextId} -> ${context.contextId}`)
-      }
-
-      this.migrateLegacySessionDir(context.contextId, context.legacyContextId)
-    }
-
+  private async getOrCreateThreadSession(context: SlackEventContext): Promise<ChannelSession | null> {
     return await this.getOrCreateSession(context.contextId, (client) => this.createSession(client))
-  }
-
-  private migrateLegacySessionDir(contextId: string, legacyContextId: string): void {
-    const targetDir = getSessionDir(this.config.connector, contextId)
-    const legacyDir = getSessionDir(this.config.connector, legacyContextId)
-
-    if (fs.existsSync(targetDir) || !fs.existsSync(legacyDir)) {
-      return
-    }
-
-    try {
-      ensureSessionDir(path.dirname(targetDir))
-      fs.cpSync(legacyDir, targetDir, { recursive: true, errorOnExist: true })
-      this.log(`[MIGRATE] Session dir copied ${legacyContextId} -> ${contextId}`)
-    } catch (err) {
-      this.logError(`[MIGRATE] Failed to copy legacy session dir ${legacyContextId}:`, err)
-    }
   }
 
   private async sendThreadReply(
@@ -483,7 +426,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     const startTime = Date.now()
 
     // Get or create session (keyed per thread)
-    const session = await this.getOrCreateSessionWithMigration(context)
+    const session = await this.getOrCreateThreadSession(context)
 
     if (!session) {
       await this.sendThreadReply(

@@ -1,11 +1,9 @@
 import { describe, test, expect } from "bun:test"
 import {
   buildThreadContextId,
-  buildLegacyChannelContextId,
   resolveThreadTs,
   normalizeSlackEventContext,
   buildThreadReplyPayload,
-  parseBooleanEnv,
   shouldHandleThreadMessage,
 } from "../../connectors/slack"
 
@@ -43,7 +41,6 @@ describe("slack thread context keying", () => {
 
     expect(normalized.contextId).toBe("T010:C010:1710000010.000")
     expect(normalized.replyThreadTs).toBe("1710000010.000")
-    expect(normalized.legacyContextId).toBe("C010")
     expect(normalized.dedupeId).toBe("C010:1710000010.100")
   })
 
@@ -68,17 +65,6 @@ describe("slack thread context keying", () => {
 
   test("rejects reply payload without thread_ts", () => {
     expect(() => buildThreadReplyPayload("C999", "", "hello")).toThrow("thread_ts")
-  })
-
-  test("builds legacy channel context id", () => {
-    expect(buildLegacyChannelContextId("C123")).toBe("C123")
-  })
-
-  test("parses boolean env with default fallback", () => {
-    expect(parseBooleanEnv(undefined, true)).toBe(true)
-    expect(parseBooleanEnv("false", true)).toBe(false)
-    expect(parseBooleanEnv("true", false)).toBe(true)
-    expect(parseBooleanEnv("invalid", false)).toBe(false)
   })
 
   test("thread messages without trigger/mention are handled", () => {

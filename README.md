@@ -283,11 +283,6 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 - no bare channel timeline replies are used
 
 **Config flags (Slack):**
-- `THREAD_ISOLATION` (default: `true` in this fork)
-  - `true`: use thread context IDs
-  - `false`: fallback to legacy channel-level context
-- `THREAD_MIGRATE_FROM_CHANNEL` (default: `false`)
-  - when enabled, if a thread-keyed session is missing and a legacy channel-keyed session exists, initialize/copy from legacy context on first access
 - `SESSION_RETENTION_MINS` (default: `30`)
   - expires idle thread sessions in minutes
 - `SESSION_RETENTION_MODE` (default: `last_activity`)
@@ -298,7 +293,6 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 - Thread-scoped session keying now uses `team:channel:thread_root_ts`
 - Event normalization captures `team_id`, `channel`, `ts`, `thread_ts`, `user`, `text` into one internal context
 - Replies are forced through `chat.postMessage` with mandatory `thread_ts`
-- Optional migration from channel-level caches is feature-flagged
 - Duplicate event handling uses `${channel}:${ts}` idempotency keys
 - In-thread follow-ups no longer require repeated `@bot` mentions or trigger prefix
 - Expired sessions are closed with exit log: `Exiting the session, Ciao!`
@@ -338,7 +332,6 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 - Missing `team_id`, `channel`, or `ts` now fails fast with explicit log message.
 - If `thread_ts` is absent, connector uses `event.ts` as thread root.
 - DMs and MPIMs use same thread isolation logic (channel ID remains part of context ID).
-- If migration is enabled but no legacy session exists, connector creates a fresh thread session.
 - Session expiry runs on event handling; no background cron is required.
 - Never hardcode secrets; use environment variables or systemd environment settings.
 
