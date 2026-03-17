@@ -284,10 +284,7 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 
 **Config flags (Slack):**
 - `SESSION_RETENTION_MINS` (default: `30`)
-  - expires idle thread sessions in minutes
-- `SESSION_RETENTION_MODE` (default: `last_activity`)
-  - `last_activity`: expiry is based on most recent user interaction (recommended)
-  - `created_at`: expiry is based on session creation timestamp
+  - expires thread sessions after this many minutes of user inactivity
 
 **Key changes in this fork:**
 - Thread-scoped session keying now uses `team:channel:thread_root_ts`
@@ -295,8 +292,7 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 - Replies are forced through `chat.postMessage` with mandatory `thread_ts`
 - Duplicate event handling uses `${channel}:${ts}` idempotency keys
 - In-thread follow-ups no longer require repeated `@bot` mentions or trigger prefix
-- Expired sessions auto-close on timer, post `Exiting the session, Ciao!` in-thread, and delete in-memory + on-disk cache
-- After auto-close, that same thread context is treated as closed (no further bot replies)
+- Expired sessions auto-close on timer and delete in-memory + on-disk cache
 
 **Tests added:**
 - Unit: `tests/unit/slack-thread-context.test.ts`
@@ -326,17 +322,15 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 7. Retention timeout behavior
    - Set `SESSION_RETENTION_MINS=1` temporarily, restart service
    - Start a thread and wait >1 minute without activity
-   - Verify bot posts `Exiting the session, Ciao!` in that thread automatically
    - Verify cache for that thread is removed and logs include session expiry marker
-   - Verify further messages in that same thread get no bot response
+   - Verify the next message in that thread starts a fresh context/session
 
 ### Edge cases & troubleshooting
 
 - Missing `team_id`, `channel`, or `ts` now fails fast with explicit log message.
 - If `thread_ts` is absent, connector uses `event.ts` as thread root.
 - DMs and MPIMs use same thread isolation logic (channel ID remains part of context ID).
-- Session expiry runs on event handling; no background cron is required.
-- Session expiry also runs on an internal timer sweep for autonomous expiry notifications.
+- Session expiry runs on a background sweep and is based on `lastActivity` (user inactivity).
 - Never hardcode secrets; use environment variables or systemd environment settings.
 
 ### Staying in sync with upstream
