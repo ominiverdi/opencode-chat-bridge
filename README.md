@@ -275,14 +275,57 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 
 **How it differs from upstream:** upstream creates one opencode session per Slack channel; this fork creates a separate isolated session per Slack thread. `/clear` only clears the current thread's context, not the whole channel.
 
-**Only modified file:** `connectors/slack.ts` — all other files are identical to upstream.
+**Thread context ID:** `context_id = ${team_id}:${channel_id}:${thread_ts_or_ts}` where `thread_ts_or_ts = event.thread_ts ?? event.ts`.
 
-**Key changes in `connectors/slack.ts`:**
-- Session key is now `channel_threadTs` instead of `channel`
-- Top-level messages use their own `ts` as the thread root key
-- `uploadImage` accepts an optional `threadTs?` so images land in the correct thread
-- `handleCommand` (e.g. `/clear`) receives the scoped `sessionKey`, not raw `channel`
-- `TRIGGER` env var falls back to `SLACK_TRIGGER` for clarity (both work)
+**Thread reply behavior:** all Slack replies are posted with `thread_ts`.
+- top-level `app_mention` (no `thread_ts`) -> bot replies in new thread with `thread_ts=event.ts`
+- existing thread mention/message -> bot replies in same thread with `thread_ts=event.thread_ts`
+- no bare channel timeline replies are used
+
+**Config flags (Slack):**
+- `THREAD_ISOLATION` (default: `true` in this fork)
+  - `true`: use thread context IDs
+  - `false`: fallback to legacy channel-level context
+- `THREAD_MIGRATE_FROM_CHANNEL` (default: `false`)
+  - when enabled, if a thread-keyed session is missing and a legacy channel-keyed session exists, initialize/copy from legacy context on first access
+
+**Key changes in this fork:**
+- Thread-scoped session keying now uses `team:channel:thread_root_ts`
+- Event normalization captures `team_id`, `channel`, `ts`, `thread_ts`, `user`, `text` into one internal context
+- Replies are forced through `chat.postMessage` with mandatory `thread_ts`
+- Optional migration from channel-level caches is feature-flagged
+- Duplicate event handling uses `${channel}:${ts}` idempotency keys
+
+**Tests added:**
+- Unit: `tests/unit/slack-thread-context.test.ts`
+- Integration: `tests/integration/slack-event-mapping.test.ts`
+
+### Manual Slack test checklist
+
+1. Top-level mention starts thread
+   - Send `@bot hello` in a channel (not in thread)
+   - Verify bot reply appears inside a new thread under that message
+2. Existing thread mention stays in same thread
+   - Reply in that thread with `@bot continue`
+   - Verify bot response stays in same thread (same thread root)
+3. Thread isolation in same channel
+   - Create two separate threads in same channel
+   - Send different instructions in each
+   - Verify responses/context do not leak across threads
+4. Cache independence
+   - Run `/clear` in one thread
+   - Verify only that thread is reset; other thread remains intact
+5. Restart verification
+   - Restart connector
+   - Verify each thread context still maps independently
+
+### Edge cases & troubleshooting
+
+- Missing `team_id`, `channel`, or `ts` now fails fast with explicit log message.
+- If `thread_ts` is absent, connector uses `event.ts` as thread root.
+- DMs and MPIMs use same thread isolation logic (channel ID remains part of context ID).
+- If migration is enabled but no legacy session exists, connector creates a fresh thread session.
+- Never hardcode secrets; use environment variables or systemd environment settings.
 
 ### Staying in sync with upstream
 

@@ -33,6 +33,7 @@ import {
   removeImageMarkers,
   sanitizeServerPaths,
 } from "../src"
+import { getSessionDir, ensureSessionDir } from "../src/session-utils"
 
 // =============================================================================
 // Configuration
@@ -43,6 +44,107 @@ const APP_TOKEN = process.env.SLACK_APP_TOKEN
 const TRIGGER = process.env.SLACK_TRIGGER || process.env.TRIGGER || "!oc"
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 const RATE_LIMIT_SECONDS = 5
+const THREAD_ISOLATION = parseBooleanEnv(process.env.THREAD_ISOLATION, true)
+const THREAD_MIGRATE_FROM_CHANNEL = parseBooleanEnv(process.env.THREAD_MIGRATE_FROM_CHANNEL, false)
+
+export interface SlackEventContext {
+  teamId: string
+  channelId: string
+  userId: string
+  text: string
+  eventTs: string
+  threadTs?: string
+  replyThreadTs: string
+  contextId: string
+  legacyContextId: string
+  dedupeId: string
+}
+
+export function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback
+  const normalized = value.trim().toLowerCase()
+  if (["1", "true", "yes", "on"].includes(normalized)) return true
+  if (["0", "false", "no", "off"].includes(normalized)) return false
+  return fallback
+}
+
+export function resolveThreadTs(threadTs: string | undefined, eventTs: string): string {
+  return threadTs || eventTs
+}
+
+export function buildThreadContextId(teamId: string, channelId: string, threadTsOrTs: string): string {
+  return `${teamId}:${channelId}:${threadTsOrTs}`
+}
+
+export function buildLegacyChannelContextId(channelId: string): string {
+  return channelId
+}
+
+export function normalizeSlackEventContext(input: {
+  teamId?: string
+  channelId?: string
+  userId?: string
+  text?: string
+  eventTs?: string
+  threadTs?: string
+}): SlackEventContext {
+  const teamId = input.teamId || ""
+  const channelId = input.channelId || ""
+  const eventTs = input.eventTs || ""
+  const userId = input.userId || "unknown"
+  const text = input.text || ""
+
+  if (!teamId || !channelId || !eventTs) {
+    throw new Error("Missing required Slack fields: team_id, channel, or ts")
+  }
+
+  const replyThreadTs = resolveThreadTs(input.threadTs, eventTs)
+  if (!replyThreadTs) {
+    throw new Error("Unable to determine Slack thread_ts")
+  }
+
+  const contextId = THREAD_ISOLATION
+    ? buildThreadContextId(teamId, channelId, replyThreadTs)
+    : buildLegacyChannelContextId(channelId)
+
+  return {
+    teamId,
+    channelId,
+    userId,
+    text,
+    eventTs,
+    threadTs: input.threadTs,
+    replyThreadTs,
+    contextId,
+    legacyContextId: buildLegacyChannelContextId(channelId),
+    dedupeId: `${channelId}:${eventTs}`,
+  }
+}
+
+export function buildThreadReplyPayload(channelId: string, threadTs: string, text: string): {
+  channel: string
+  text: string
+  thread_ts: string
+} {
+  if (!threadTs) {
+    throw new Error("Slack thread_ts is required for replies")
+  }
+
+  return {
+    channel: channelId,
+    text,
+    thread_ts: threadTs,
+  }
+}
+
+export async function postThreadReply(
+  client: { chat: { postMessage: (payload: { channel: string; text: string; thread_ts: string }) => Promise<unknown> } },
+  channelId: string,
+  threadTs: string,
+  text: string
+): Promise<void> {
+  await client.chat.postMessage(buildThreadReplyPayload(channelId, threadTs, text))
+}
 
 // =============================================================================
 // Session Type
@@ -56,8 +158,9 @@ interface ChannelSession extends BaseSession {
 // Slack Connector
 // =============================================================================
 
-class SlackConnector extends BaseConnector<ChannelSession> {
+export class SlackConnector extends BaseConnector<ChannelSession> {
   private app: App | null = null
+  private processedEvents = new Map<string, number>()
 
   constructor() {
     super({
@@ -97,62 +200,86 @@ class SlackConnector extends BaseConnector<ChannelSession> {
     })
 
     // Handle app mentions (@bot)
-    this.app.event("app_mention", async ({ event, say }) => {
-      const userId = event.user || "unknown"
-      const channel = event.channel || ""
-      const text = event.text || ""
+    this.app.event("app_mention", async ({ event, body, client }) => {
+      let context: SlackEventContext
+      try {
+        context = normalizeSlackEventContext({
+          teamId: (body as any).team_id,
+          channelId: event.channel,
+          userId: event.user,
+          text: event.text,
+          eventTs: event.ts,
+          threadTs: event.thread_ts,
+        })
+      } catch (err) {
+        this.logError("[MENTION] Invalid event payload:", err)
+        return
+      }
 
-      if (!channel) return
+      if (this.isDuplicateEvent(context.dedupeId)) {
+        this.log(`[DUPLICATE] Skipping ${context.dedupeId}`)
+        return
+      }
 
-      // Determine thread context: reply in existing thread or start new one
-      const threadTs = event.thread_ts || event.ts
-      const sessionKey = this.threadSessionKey(channel, event.thread_ts, event.ts)
-
-      this.log(`[MENTION] ${userId} in ${sessionKey}: ${text}`)
+      this.log(`[MENTION] ${context.userId} in ${context.contextId}: ${context.text}`)
 
       // Extract query (remove the mention)
-      const query = text.replace(/<@[A-Z0-9]+>/g, "").trim()
+      const query = context.text.replace(/<@[A-Z0-9]+>/g, "").trim()
       if (!query) return
 
       // Rate limiting
-      if (!this.checkRateLimit(userId)) return
+      if (!this.checkRateLimit(context.userId)) return
 
-      await this.processQuery(sessionKey, threadTs, userId, query, say)
+      await this.processQuery(context, query, client)
     })
 
     // Handle messages with trigger prefix
-    this.app.message(new RegExp(`^${TRIGGER}\\s+(.+)`, "i"), async ({ message, say }) => {
+    this.app.message(new RegExp(`^${TRIGGER}\\s+(.+)`, "i"), async ({ message, body, client }) => {
       // Type guard for message with text and user
       if (!("text" in message) || !message.text) return
       if (!("user" in message) || !message.user) return
       if (!("channel" in message) || !message.channel) return
 
-      const userId = message.user
-      const channel = message.channel
-      const text = message.text
-
-      // Determine thread context
       const msgAny = message as any
-      const threadTs = msgAny.thread_ts || msgAny.ts
-      const sessionKey = this.threadSessionKey(channel, msgAny.thread_ts, msgAny.ts)
+      let context: SlackEventContext
+      try {
+        context = normalizeSlackEventContext({
+          teamId: (body as any).team_id,
+          channelId: message.channel,
+          userId: message.user,
+          text: message.text,
+          eventTs: msgAny.ts,
+          threadTs: msgAny.thread_ts,
+        })
+      } catch (err) {
+        this.logError("[MSG] Invalid event payload:", err)
+        return
+      }
 
-      this.log(`[MSG] ${userId} in ${sessionKey}: ${text}`)
+      if (this.isDuplicateEvent(context.dedupeId)) {
+        this.log(`[DUPLICATE] Skipping ${context.dedupeId}`)
+        return
+      }
+
+      this.log(`[MSG] ${context.userId} in ${context.contextId}: ${context.text}`)
 
       // Extract query after trigger
-      const match = text.match(new RegExp(`^${TRIGGER}\\s+(.+)`, "i"))
+      const match = context.text.match(new RegExp(`^${TRIGGER}\\s+(.+)`, "i"))
       if (!match) return
       const query = match[1].trim()
 
       // Handle commands
       if (query.startsWith("/")) {
-        await this.handleCommand(sessionKey, query, async (text) => { await say(text) })
+        await this.handleCommand(context.contextId, query, async (text) => {
+          await this.sendThreadReply(client, context.channelId, context.replyThreadTs, text)
+        })
         return
       }
 
       // Rate limiting
-      if (!this.checkRateLimit(userId)) return
+      if (!this.checkRateLimit(context.userId)) return
 
-      await this.processQuery(sessionKey, threadTs, userId, query, say)
+      await this.processQuery(context, query, client)
     })
 
     // Start the app
@@ -181,31 +308,82 @@ class SlackConnector extends BaseConnector<ChannelSession> {
   // Slack-specific methods
   // ---------------------------------------------------------------------------
 
-  /**
-   * Build a per-thread session key.
-   * - If the message is a reply in a thread: threadTs is the parent message ts.
-   * - If the message is a top-level message: use its own ts as the thread root.
-   */
-  private threadSessionKey(channel: string, threadTs: string | undefined, fallbackTs: string): string {
-    return `${channel}_${threadTs ?? fallbackTs}`
+  private isDuplicateEvent(dedupeId: string): boolean {
+    const now = Date.now()
+    const maxAgeMs = 5 * 60 * 1000
+
+    for (const [id, ts] of this.processedEvents) {
+      if (now - ts > maxAgeMs) {
+        this.processedEvents.delete(id)
+      }
+    }
+
+    if (this.processedEvents.has(dedupeId)) {
+      return true
+    }
+
+    this.processedEvents.set(dedupeId, now)
+    return false
   }
 
-  private async processQuery(
-    sessionKey: string,
+  private async getOrCreateSessionWithMigration(context: SlackEventContext): Promise<ChannelSession | null> {
+    if (!THREAD_ISOLATION) {
+      return await this.getOrCreateSession(context.contextId, (client) => this.createSession(client))
+    }
+
+    if (THREAD_MIGRATE_FROM_CHANNEL) {
+      const legacySession = this.sessionManager.get(context.legacyContextId)
+      if (!this.sessionManager.has(context.contextId) && legacySession) {
+        this.sessionManager.set(context.contextId, legacySession)
+        this.sessionManager.delete(context.legacyContextId)
+        this.log(`[MIGRATE] Memory session ${context.legacyContextId} -> ${context.contextId}`)
+      }
+
+      this.migrateLegacySessionDir(context.contextId, context.legacyContextId)
+    }
+
+    return await this.getOrCreateSession(context.contextId, (client) => this.createSession(client))
+  }
+
+  private migrateLegacySessionDir(contextId: string, legacyContextId: string): void {
+    const targetDir = getSessionDir(this.config.connector, contextId)
+    const legacyDir = getSessionDir(this.config.connector, legacyContextId)
+
+    if (fs.existsSync(targetDir) || !fs.existsSync(legacyDir)) {
+      return
+    }
+
+    try {
+      ensureSessionDir(path.dirname(targetDir))
+      fs.cpSync(legacyDir, targetDir, { recursive: true, errorOnExist: true })
+      this.log(`[MIGRATE] Session dir copied ${legacyContextId} -> ${contextId}`)
+    } catch (err) {
+      this.logError(`[MIGRATE] Failed to copy legacy session dir ${legacyContextId}:`, err)
+    }
+  }
+
+  private async sendThreadReply(
+    client: any,
+    channelId: string,
     threadTs: string,
-    user: string,
-    query: string,
-    say: (text: string) => Promise<unknown>
+    text: string
   ): Promise<void> {
+    await postThreadReply(client, channelId, threadTs, text)
+  }
+
+  private async processQuery(context: SlackEventContext, query: string, slackClient: any): Promise<void> {
     const startTime = Date.now()
 
     // Get or create session (keyed per thread)
-    const session = await this.getOrCreateSession(sessionKey, (client) =>
-      this.createSession(client)
-    )
+    const session = await this.getOrCreateSessionWithMigration(context)
 
     if (!session) {
-      await say("Sorry, I couldn't connect to the AI service.")
+      await this.sendThreadReply(
+        slackClient,
+        context.channelId,
+        context.replyThreadTs,
+        "Sorry, I couldn't connect to the AI service."
+      )
       return
     }
 
@@ -228,7 +406,7 @@ class SlackConnector extends BaseConnector<ChannelSession> {
         toolCallCount++
         if (activity.message !== lastActivityMessage) {
           lastActivityMessage = activity.message
-          await say(`> ${activity.message}`)
+          await this.sendThreadReply(slackClient, context.channelId, context.replyThreadTs, `> ${activity.message}`)
         }
       }
     }
@@ -258,7 +436,7 @@ class SlackConnector extends BaseConnector<ChannelSession> {
       for (const imagePath of toolPaths) {
         if (fs.existsSync(imagePath)) {
           this.log(`Uploading image from tool result: ${imagePath}`)
-          await this.uploadImage(sessionKey, imagePath, threadTs)
+          await this.uploadImage(context.channelId, imagePath, context.replyThreadTs)
         }
       }
 
@@ -269,7 +447,7 @@ class SlackConnector extends BaseConnector<ChannelSession> {
         if (toolPaths.includes(imagePath)) continue
         if (fs.existsSync(imagePath)) {
           this.log(`Uploading image from response: ${imagePath}`)
-          await this.uploadImage(sessionKey, imagePath, threadTs)
+          await this.uploadImage(context.channelId, imagePath, context.replyThreadTs)
         }
       }
 
@@ -277,17 +455,22 @@ class SlackConnector extends BaseConnector<ChannelSession> {
       const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
       if (cleanResponse) {
         session.outputChars += cleanResponse.length
-        await say(cleanResponse)
+        await this.sendThreadReply(slackClient, context.channelId, context.replyThreadTs, cleanResponse)
       }
       // Log elapsed time
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
       const outChars = cleanResponse ? cleanResponse.length : 0
       const tools = toolCallCount > 0 ? `, ${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}` : ""
-      this.log(`[DONE] ${elapsed}s (${outChars} chars${tools}) [${sessionKey}]`)
+      this.log(`[DONE] ${elapsed}s (${outChars} chars${tools}) [${context.contextId}]`)
     } catch (err) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      this.logError(`[FAIL] ${elapsed}s [${sessionKey}]:`, err)
-      await say("Sorry, something went wrong processing your request.")
+      this.logError(`[FAIL] ${elapsed}s [${context.contextId}]:`, err)
+      await this.sendThreadReply(
+        slackClient,
+        context.channelId,
+        context.replyThreadTs,
+        "Sorry, something went wrong processing your request."
+      )
     } finally {
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
@@ -346,7 +529,9 @@ async function main() {
   await connector.start()
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err)
-  process.exit(1)
-})
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Fatal error:", err)
+    process.exit(1)
+  })
+}
