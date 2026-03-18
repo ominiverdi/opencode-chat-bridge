@@ -77,11 +77,15 @@ export function shouldHandleThreadMessage(input: {
   const text = input.text.trim()
   if (!text) return false
   if (!input.threadTs) return false
-  if (input.subtype) return false
+  if (input.subtype && input.subtype !== "thread_broadcast") return false
   if (input.botId) return false
   if (text.toLowerCase().startsWith(`${input.trigger.toLowerCase()} `)) return false
   if (/^<@[A-Z0-9]+>/.test(text)) return false
   return true
+}
+
+function extractTeamId(body: any, event: any): string {
+  return body?.team_id || body?.team?.id || event?.team || ""
 }
 
 export function resolveThreadTs(threadTs: string | undefined, eventTs: string): string {
@@ -216,7 +220,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       let context: SlackEventContext
       try {
         context = normalizeSlackEventContext({
-          teamId: (body as any).team_id,
+          teamId: extractTeamId(body, event),
           channelId: event.channel,
           userId: event.user,
           text: event.text,
@@ -239,6 +243,8 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       const query = context.text.replace(/<@[A-Z0-9]+>/g, "").trim()
       if (!query) return
 
+      this.touchSessionActivity(context.contextId)
+
       // Rate limiting
       if (!this.checkRateLimit(context.userId)) return
 
@@ -258,7 +264,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       let context: SlackEventContext
       try {
         context = normalizeSlackEventContext({
-          teamId: (body as any).team_id,
+          teamId: extractTeamId(body, message),
           channelId: message.channel,
           userId: message.user,
           text: message.text,
@@ -281,6 +287,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       const match = context.text.match(new RegExp(`^${TRIGGER}\\s+(.+)`, "i"))
       if (!match) return
       const query = match[1].trim()
+      this.touchSessionActivity(context.contextId)
 
       // Handle commands
       if (query.startsWith("/")) {
@@ -317,7 +324,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       let context: SlackEventContext
       try {
         context = normalizeSlackEventContext({
-          teamId: (body as any).team_id,
+          teamId: extractTeamId(body, message),
           channelId: message.channel,
           userId: message.user,
           text: message.text,
@@ -336,6 +343,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
 
       this.log(`[THREAD] ${context.userId} in ${context.contextId}: ${context.text}`)
 
+      this.touchSessionActivity(context.contextId)
       if (!this.checkRateLimit(context.userId)) return
       await this.processQuery(context, context.text.trim(), client)
     })
@@ -417,6 +425,12 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     }
     this.sessionManager.delete(id)
     this.deleteSessionCacheDir(id)
+  }
+
+  private touchSessionActivity(id: string): void {
+    const session = this.sessionManager.get(id)
+    if (!session) return
+    session.lastActivity = new Date()
   }
 
   private startSessionExpiryLoop(): void {
