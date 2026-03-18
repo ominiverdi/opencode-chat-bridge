@@ -326,18 +326,24 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     })
 
     this.app.message(async ({ message, body, client }) => {
+      // DEBUG: log all raw message events to diagnose thread reply pickup
+      const _dbg = message as any
+      this.log(`[RAW_MSG] type=${_dbg.type} subtype=${_dbg.subtype} bot_id=${_dbg.bot_id} thread_ts=${_dbg.thread_ts} ts=${_dbg.ts} channel=${_dbg.channel} user=${_dbg.user} text_len=${typeof _dbg.text === "string" ? _dbg.text.length : "n/a"}`)
+
       if (!("text" in message) || !message.text) return
       if (!("user" in message) || !message.user) return
       if (!("channel" in message) || !message.channel) return
 
       const msgAny = message as any
-      if (!shouldHandleThreadMessage({
+      const _shouldHandle = shouldHandleThreadMessage({
         text: message.text,
         threadTs: msgAny.thread_ts,
         trigger: TRIGGER,
         subtype: msgAny.subtype,
         botId: msgAny.bot_id,
-      })) {
+      })
+      this.log(`[RAW_MSG] shouldHandle=${_shouldHandle} threadTs=${msgAny.thread_ts} text_preview="${message.text.slice(0,40)}"`)
+      if (!_shouldHandle) {
         return
       }
 
