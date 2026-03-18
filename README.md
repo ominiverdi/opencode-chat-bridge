@@ -314,7 +314,8 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
    - Verify only that thread is reset; other thread remains intact
 5. Restart verification
    - Restart connector
-   - Verify each thread context still maps independently
+   - Verify thread-scoped sessions start fresh after restart
+   - Verify a new mention/trigger recreates the thread session for later implicit follow-ups
 6. Retention timeout behavior
    - Set `SESSION_RETENTION_MINS=1` temporarily, restart service
    - Start a thread and wait >1 minute without activity
@@ -323,10 +324,12 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 
 ### Edge cases & troubleshooting
 
-- Missing `team_id`, `channel`, or `ts` now fails fast with explicit log message.
+- Missing `channel` or `ts` fails fast with explicit log message.
+- Missing `team_id` is tolerated; the connector falls back to channel-based session normalization.
 - If `thread_ts` is absent, connector uses `event.ts` as thread root.
 - DMs and MPIMs use same thread isolation logic (channel ID remains part of context ID).
 - Session expiry runs on a background sweep and is based on `lastActivity` (user inactivity).
+- Startup cleanup of old on-disk session dirs is still based on directory age, not reconstructed Slack inactivity.
 - Never hardcode secrets; use environment variables or systemd environment settings.
 
 ### Staying in sync with upstream
@@ -335,6 +338,6 @@ This fork adds **per-Slack-thread session isolation** to `connectors/slack.ts`.
 git remote add upstream https://github.com/ominiverdi/opencode-chat-bridge.git
 git fetch upstream
 git rebase upstream/main
-# resolve any conflicts in connectors/slack.ts (the only modified file)
+# resolve any conflicts in connectors/slack.ts, README.md, .env.example, and Slack tests
 git push --force-with-lease origin main
 ```

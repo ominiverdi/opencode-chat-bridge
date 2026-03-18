@@ -23,7 +23,7 @@
 import fs from "fs"
 import path from "path"
 import { App } from "@slack/bolt"
-import { ACPClient, type ActivityEvent } from "../src"
+import { ACPClient, type ActivityEvent, type OpenCodeCommand } from "../src"
 import {
   BaseConnector,
   type BaseSession,
@@ -159,6 +159,11 @@ export function shouldHandleThreadMessage(input: {
   return true
 }
 
+function isLocalBridgeCommand(command: string): boolean {
+  const cmd = command.toLowerCase().trim()
+  return cmd === "/status" || cmd === "/clear" || cmd === "/reset" || cmd === "/help"
+}
+
 // =============================================================================
 // Session Type
 // =============================================================================
@@ -275,8 +280,21 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       const query = match[1].trim()
 
       if (query.startsWith("/")) {
+        const existingSession = this.sessionManager.get(context.contextId)
+        const openCodeCommands: OpenCodeCommand[] = existingSession?.client.availableCommands || []
+
+        if (!isLocalBridgeCommand(query) && openCodeCommands.length === 0) {
+          await this.processQuery(context, query, client)
+          return
+        }
+
         await this.handleCommand(context.contextId, query, async (text) => {
           await postThreadReply(client, context.channelId, context.replyThreadTs, text)
+        }, {
+          openCodeCommands,
+          forwardToOpenCode: async (command) => {
+            await this.processQuery(context, command, client)
+          },
         })
         return
       }
@@ -419,30 +437,27 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
 
   private async processQuery(context: SlackEventContext, query: string, slackClient: any): Promise<void> {
     const startTime = Date.now()
-
-    const session = await this.getOrCreateSession(context.contextId, (client) => ({
-      ...this.createBaseSession(client),
-    }))
-
-    if (!session) {
-      await postThreadReply(slackClient, context.channelId, context.replyThreadTs,
-        "Sorry, I couldn't connect to the AI service.")
+    if (this.activeQueries.has(context.contextId)) {
+      await postThreadReply(
+        slackClient,
+        context.channelId,
+        context.replyThreadTs,
+        "A request is already running in this thread. Please wait for it to finish."
+      )
       return
     }
 
-    session.messageCount++
-    session.lastActivity = new Date()
-    session.inputChars += query.length
     this.activeQueries.add(context.contextId)
 
-    const client = session.client
+    let session: ChannelSession | null = null
+    let client: ACPClient | null = null
     let responseBuffer = ""
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
     let toolCallCount = 0
 
     const activityHandler = async (activity: ActivityEvent) => {
-      if (activity.type === "tool_start") {
+      if (activity.type === "tool_start" && session) {
         toolCallCount++
         if (activity.message !== lastActivityMessage) {
           lastActivityMessage = activity.message
@@ -458,11 +473,26 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       }
     }
 
-    client.on("activity", activityHandler)
-    client.on("chunk", chunkHandler)
-    client.on("update", updateHandler)
-
     try {
+      session = await this.getOrCreateSession(context.contextId, (client) => ({
+        ...this.createBaseSession(client),
+      }))
+
+      if (!session) {
+        await postThreadReply(slackClient, context.channelId, context.replyThreadTs,
+          "Sorry, I couldn't connect to the AI service.")
+        return
+      }
+
+      session.messageCount++
+      session.lastActivity = new Date()
+      session.inputChars += query.length
+
+      client = session.client
+      client.on("activity", activityHandler)
+      client.on("chunk", chunkHandler)
+      client.on("update", updateHandler)
+
       await client.prompt(query)
 
       const toolPaths = extractImagePaths(toolResultsBuffer)
@@ -496,11 +526,11 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       await postThreadReply(slackClient, context.channelId, context.replyThreadTs,
         "Sorry, something went wrong processing your request.")
     } finally {
-      client.off("activity", activityHandler)
-      client.off("chunk", chunkHandler)
-      client.off("update", updateHandler)
+      client?.off("activity", activityHandler)
+      client?.off("chunk", chunkHandler)
+      client?.off("update", updateHandler)
       // Reset inactivity clock from moment of delivery, not start of query.
-      session.lastActivity = new Date()
+      if (session) session.lastActivity = new Date()
       this.activeQueries.delete(context.contextId)
     }
   }

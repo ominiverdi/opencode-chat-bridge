@@ -13,7 +13,7 @@ describe("slack event mapping integration", () => {
 
     const payload = buildThreadReplyPayload(context.channelId, context.replyThreadTs, "ack")
     expect(payload.thread_ts).toBe("1711111111.001")
-    expect(context.contextId).toBe("TAPP:CCHAN:1711111111.001")
+    expect(context.contextId).toBe("CCHAN:1711111111.001")
   })
 
   test("thread reply maps to existing parent thread_ts", () => {
@@ -28,7 +28,7 @@ describe("slack event mapping integration", () => {
 
     const payload = buildThreadReplyPayload(context.channelId, context.replyThreadTs, "ack")
     expect(payload.thread_ts).toBe("1711111111.100")
-    expect(context.contextId).toBe("TAPP:CCHAN:1711111111.100")
+    expect(context.contextId).toBe("CCHAN:1711111111.100")
   })
 
   test("postThreadReply always sends thread_ts", async () => {

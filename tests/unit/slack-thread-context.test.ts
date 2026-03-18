@@ -174,4 +174,12 @@ describe("slack thread context keying", () => {
     })).toBe(true)
   })
 
+  test("trigger matching is case-insensitive for implicit thread filtering", () => {
+    expect(shouldHandleThreadMessage({
+      text: "!SQL query",
+      threadTs: "1710000000.123",
+      trigger: "!sql",
+    })).toBe(false)
+  })
+
 })
