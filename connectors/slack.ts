@@ -98,6 +98,20 @@ export function buildThreadContextId(teamId: string, channelId: string, threadTs
   return `${teamId}:${channelId}:${threadTsOrTs}`
 }
 
+/**
+ * Build a session context ID from channel and thread root timestamp only.
+ * This is the canonical key used for session lookups — it intentionally omits
+ * teamId because Slack does not always include team_id in Socket Mode message
+ * payloads (e.g. private-channel thread replies), which would cause a key mismatch
+ * between the session created on an @mention and the follow-up thread message.
+ *
+ * Channel IDs are globally unique within a Slack workspace, so
+ * `channel:threadTs` is sufficient for per-thread isolation.
+ */
+export function buildSessionContextId(channelId: string, threadTsOrTs: string): string {
+  return `${channelId}:${threadTsOrTs}`
+}
+
 export function normalizeSlackEventContext(input: {
   teamId?: string
   channelId?: string
@@ -106,22 +120,29 @@ export function normalizeSlackEventContext(input: {
   eventTs?: string
   threadTs?: string
 }): SlackEventContext {
-  const teamId = input.teamId || ""
   const channelId = input.channelId || ""
   const eventTs = input.eventTs || ""
   const userId = input.userId || "unknown"
   const text = input.text || ""
 
-  if (!teamId || !channelId || !eventTs) {
-    throw new Error("Missing required Slack fields: team_id, channel, or ts")
+  if (!channelId || !eventTs) {
+    throw new Error("Missing required Slack fields: channel or ts")
   }
+
+  // teamId is best-effort: Slack does not always include team_id in Socket Mode
+  // message payloads (e.g. private-channel thread replies). Fall back to a stable
+  // placeholder so the context key stays unique and consistent per channel.
+  const teamId = input.teamId || `ch_${channelId}`
 
   const replyThreadTs = resolveThreadTs(input.threadTs, eventTs)
   if (!replyThreadTs) {
     throw new Error("Unable to determine Slack thread_ts")
   }
 
-  const contextId = buildThreadContextId(teamId, channelId, replyThreadTs)
+  // Use channel:threadTs as the session key (omitting teamId) so that
+  // follow-up thread messages without team_id in the payload resolve to the
+  // same session that was created on the initial @mention.
+  const contextId = buildSessionContextId(channelId, replyThreadTs)
 
   return {
     teamId,
@@ -176,6 +197,8 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
   private app: App | null = null
   private processedEvents = new Map<string, number>()
   private expiryInterval: NodeJS.Timeout | null = null
+  /** Sessions with an active in-flight query; never evict these. */
+  private activeQueries = new Set<string>()
 
   constructor() {
     super({
@@ -443,6 +466,8 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
   private async expireStaleSessions(): Promise<void> {
     const stale: Array<{ id: string; session: ChannelSession }> = []
     for (const [id, session] of this.sessionManager.sessions) {
+      // Never evict a session that has an active in-flight query
+      if (this.activeQueries.has(id)) continue
       if (this.sessionInactivityMinutes(session) >= SESSION_RETENTION_MINS) {
         stale.push({ id, session })
       }
@@ -488,6 +513,10 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     session.lastActivity = new Date()
     session.inputChars += query.length
 
+    // Mark this session as having an active query so the expiry loop won't
+    // evict it mid-response (even if the query takes longer than SESSION_RETENTION_MINS).
+    this.activeQueries.add(context.contextId)
+
     const client = session.client
 
     // Track response chunks
@@ -502,6 +531,8 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
         toolCallCount++
         if (activity.message !== lastActivityMessage) {
           lastActivityMessage = activity.message
+          // Keep inactivity clock from ticking during active tool calls
+          session.lastActivity = new Date()
           await this.sendThreadReply(slackClient, context.channelId, context.replyThreadTs, `> ${activity.message}`)
         }
       }
@@ -571,6 +602,10 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
+      // Unmark active query and reset the inactivity clock to now so the
+      // retention window starts from when the response was delivered.
+      session.lastActivity = new Date()
+      this.activeQueries.delete(context.contextId)
     }
   }
 

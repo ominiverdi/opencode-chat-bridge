@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import {
   buildThreadContextId,
+  buildSessionContextId,
   resolveThreadTs,
   normalizeSlackEventContext,
   buildThreadReplyPayload,
@@ -13,20 +14,25 @@ describe("slack thread context keying", () => {
     expect(contextId).toBe("T001:C001:1710000000.111")
   })
 
+  test("builds session context id from channel and thread root ts (no team)", () => {
+    const contextId = buildSessionContextId("C001", "1710000000.111")
+    expect(contextId).toBe("C001:1710000000.111")
+  })
+
   test("uses event ts as root when message is top-level", () => {
     const rootTs = resolveThreadTs(undefined, "1710000000.222")
-    const contextId = buildThreadContextId("T002", "C002", rootTs)
+    const contextId = buildSessionContextId("C002", rootTs)
 
     expect(rootTs).toBe("1710000000.222")
-    expect(contextId).toBe("T002:C002:1710000000.222")
+    expect(contextId).toBe("C002:1710000000.222")
   })
 
   test("uses thread_ts as root when message is in a thread", () => {
     const rootTs = resolveThreadTs("1710000000.333", "1710000000.444")
-    const contextId = buildThreadContextId("T003", "C003", rootTs)
+    const contextId = buildSessionContextId("C003", rootTs)
 
     expect(rootTs).toBe("1710000000.333")
-    expect(contextId).toBe("T003:C003:1710000000.333")
+    expect(contextId).toBe("C003:1710000000.333")
   })
 
   test("normalizes event context and computes dedupe id", () => {
@@ -39,19 +45,58 @@ describe("slack thread context keying", () => {
       threadTs: "1710000010.000",
     })
 
-    expect(normalized.contextId).toBe("T010:C010:1710000010.000")
+    // contextId uses channel:threadTs (no teamId) for consistent session lookup
+    expect(normalized.contextId).toBe("C010:1710000010.000")
     expect(normalized.replyThreadTs).toBe("1710000010.000")
     expect(normalized.dedupeId).toBe("C010:1710000010.100")
   })
 
-  test("throws when required Slack fields are missing", () => {
+  test("contextId is identical with or without teamId (session key consistency)", () => {
+    const withTeam = normalizeSlackEventContext({
+      teamId: "T010",
+      channelId: "C010",
+      eventTs: "1710000010.100",
+      threadTs: "1710000010.000",
+    })
+
+    const withoutTeam = normalizeSlackEventContext({
+      channelId: "C010",
+      eventTs: "1710000010.100",
+      threadTs: "1710000010.000",
+    })
+
+    // Both must resolve to the same session key regardless of teamId presence
+    expect(withTeam.contextId).toBe(withoutTeam.contextId)
+    expect(withTeam.contextId).toBe("C010:1710000010.000")
+  })
+
+  test("throws when required Slack fields are missing (channel or ts)", () => {
     expect(() =>
       normalizeSlackEventContext({
-        teamId: "",
-        channelId: "C010",
+        channelId: "",
         eventTs: "1710000010.100",
       })
     ).toThrow("Missing required Slack fields")
+
+    expect(() =>
+      normalizeSlackEventContext({
+        channelId: "C010",
+        eventTs: "",
+      })
+    ).toThrow("Missing required Slack fields")
+  })
+
+  test("succeeds when teamId is absent (uses channel-based fallback)", () => {
+    const normalized = normalizeSlackEventContext({
+      channelId: "C010",
+      userId: "U010",
+      text: "follow up",
+      eventTs: "1710000010.200",
+      threadTs: "1710000010.000",
+    })
+
+    expect(normalized.contextId).toBe("C010:1710000010.000")
+    expect(normalized.teamId).toBe("ch_C010")
   })
 
   test("builds thread-only reply payload", () => {
