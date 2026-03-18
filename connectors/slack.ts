@@ -361,6 +361,13 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
         return
       }
 
+      // Only handle plain thread replies when an active session already exists for this thread.
+      // If no session exists, the reply is from a thread the bot was never part of — ignore it.
+      if (!this.sessionManager.has(context.contextId)) {
+        this.log(`[THREAD] No active session for ${context.contextId} — ignoring plain reply`)
+        return
+      }
+
       this.log(`[THREAD] ${context.userId} in ${context.contextId}: ${context.text}`)
 
       this.touchSessionActivity(context.contextId)
