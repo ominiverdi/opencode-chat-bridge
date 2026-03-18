@@ -1,6 +1,5 @@
 import { describe, test, expect } from "bun:test"
 import {
-  buildThreadContextId,
   buildSessionContextId,
   resolveThreadTs,
   normalizeSlackEventContext,
@@ -9,11 +8,6 @@ import {
 } from "../../connectors/slack"
 
 describe("slack thread context keying", () => {
-  test("builds thread context id from team, channel, and thread root ts", () => {
-    const contextId = buildThreadContextId("T001", "C001", "1710000000.111")
-    expect(contextId).toBe("T001:C001:1710000000.111")
-  })
-
   test("builds session context id from channel and thread root ts (no team)", () => {
     const contextId = buildSessionContextId("C001", "1710000000.111")
     expect(contextId).toBe("C001:1710000000.111")
