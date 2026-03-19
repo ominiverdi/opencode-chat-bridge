@@ -36,7 +36,7 @@ import {
 // =============================================================================
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN
-const TRIGGER = process.env.DISCORD_TRIGGER || "!oc"
+const TRIGGER = process.env.DISCORD_TRIGGER || config.trigger
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 const RATE_LIMIT_SECONDS = 5
 

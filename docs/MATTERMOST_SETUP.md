@@ -156,6 +156,26 @@ what time is it?
 search for map projections
 ```
 
+### Thread Isolation
+
+Every conversation happens inside a Mattermost thread:
+
+- **Trigger or @mention** in a channel starts a new thread with its own session
+- **Replies within the thread** are forwarded automatically -- no need to re-trigger
+- **Different threads** have completely separate sessions and context
+- **Sessions expire** after inactivity (configurable via `SESSION_RETENTION_MINS`)
+
+Configure in `chat-bridge.json`:
+```json
+{
+  "mattermost": {
+    "threadIsolation": true
+  }
+}
+```
+
+Set to `false` for per-channel sessions (old behavior).
+
 ### Commands
 
 | Command | Description |

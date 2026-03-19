@@ -8,10 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Slack thread isolation** - Sessions are now keyed per thread (`channel:threadTs`)
+- **Thread isolation (Slack + Mattermost)** - Sessions are now keyed per thread (`channel:threadTs`)
   instead of per channel. Each Slack thread gets its own isolated OpenCode session.
   Replies always stay in threads. Implicit follow-ups work without re-mentioning
-  the bot. Inspired by PR #2, reimplemented with proper separation of concerns.
+  the bot. Configurable via `threadIsolation` in chat-bridge.json (default: true).
+  Inspired by PR #2, reimplemented with proper separation of concerns.
 - **Event deduplication (all connectors)** - New `EventDeduplicator` in BaseConnector
   prevents duplicate event processing. Tracks recently seen event IDs with automatic
   eviction. Protects against Slack retries, Matrix sync replays, Discord

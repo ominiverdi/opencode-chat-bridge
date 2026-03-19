@@ -33,6 +33,7 @@ export interface MattermostConfig {
   respondToMentions: boolean // Respond when @mentioned (in addition to trigger)
   ignoreChannels: string[] // Channel IDs to ignore
   ignoreUsers: string[]    // User IDs to ignore
+  threadIsolation: boolean // true: per-thread sessions + thread replies, false: per-channel
 }
 
 export interface WhatsAppConfig {
@@ -94,6 +95,7 @@ const defaultConfig: ChatBridgeConfig = {
     respondToMentions: true,
     ignoreChannels: [],
     ignoreUsers: [],
+    threadIsolation: true,  // Per-thread sessions by default
   },
   whatsapp: {
     enabled: false,
