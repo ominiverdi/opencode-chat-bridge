@@ -103,6 +103,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     this.logStartup()
     await this.cleanupSessions()
     await this.connect()
+    this.startSessionExpiryLoop()
   }
 
   async stop(): Promise<void> {
@@ -220,6 +221,10 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       return
     }
 
+    // Deduplicate events
+    const dedupeId = msg.key.id || `${chatId}:${Date.now()}`
+    if (this.isDuplicateEvent(dedupeId)) return
+
     this.log(`[MSG] ${phoneNumber}: ${text}`)
 
     // Check trigger
@@ -255,6 +260,13 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
 
   private async processQuery(chatId: string, phoneNumber: string, query: string): Promise<void> {
     const startTime = Date.now()
+
+    // Guard against concurrent queries on the same session
+    if (this.isQueryActive(chatId)) {
+      await this.sendMessage(chatId, "A request is already running. Please wait for it to finish.")
+      return
+    }
+    this.markQueryActive(chatId)
 
     // Get or create session
     const session = await this.getOrCreateSession(chatId, (client) =>
@@ -379,6 +391,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)
+      this.markQueryDone(chatId)
     }
   }
 
