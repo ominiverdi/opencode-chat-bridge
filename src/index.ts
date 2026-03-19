@@ -30,6 +30,7 @@ export {
   BaseConnector,
   SessionManager,
   RateLimiter,
+  EventDeduplicator,
   CommandHandler,
   type BaseSession,
   type SessionStats,
