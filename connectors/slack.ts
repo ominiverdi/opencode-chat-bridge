@@ -24,6 +24,7 @@ import fs from "fs"
 import path from "path"
 import { App } from "@slack/bolt"
 import { ACPClient, type ActivityEvent } from "../src"
+import { getConfig } from "../src/config"
 import {
   BaseConnector,
   type BaseSession,
@@ -42,6 +43,9 @@ const TRIGGER = process.env.SLACK_TRIGGER || process.env.TRIGGER || "!oc"
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 const SESSION_RETENTION_MINS = parseSessionRetentionMins(process.env)
 const RATE_LIMIT_SECONDS = 5
+
+const config = getConfig()
+const THREAD_ISOLATION = config.slack.threadIsolation
 
 function parseSessionRetentionMins(env: NodeJS.ProcessEnv): number {
   const raw = env.SESSION_RETENTION_MINS
@@ -178,6 +182,22 @@ export function shouldHandleThreadMessage(input: {
   return true
 }
 
+/**
+ * Resolve the session ID based on threadIsolation config.
+ * When true: channel:threadTs (per-thread sessions)
+ * When false: channel (per-channel sessions, old behavior)
+ */
+export function resolveSessionId(
+  channelId: string,
+  replyThreadTs: string,
+  threadIsolation: boolean
+): string {
+  if (threadIsolation) {
+    return buildSessionContextId(channelId, replyThreadTs)
+  }
+  return channelId
+}
+
 // =============================================================================
 // Session Type
 // =============================================================================
@@ -190,6 +210,7 @@ interface ChannelSession extends BaseSession {}
 
 export class SlackConnector extends BaseConnector<ChannelSession> {
   private app: App | null = null
+  private threadIsolation: boolean
 
   constructor() {
     super({
@@ -200,6 +221,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       sessionRetentionDays: SESSION_RETENTION_DAYS,
       sessionRetentionMins: SESSION_RETENTION_MINS,
     })
+    this.threadIsolation = THREAD_ISOLATION
   }
 
   // ---------------------------------------------------------------------------
@@ -219,6 +241,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     }
 
     this.logStartup()
+    console.log(`  Thread isolation: ${this.threadIsolation ? "on (per-thread sessions)" : "off (per-channel sessions)"}`)
     await this.cleanupSessions()
 
     this.app = new App({
@@ -247,14 +270,15 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       }
 
       if (this.isDuplicateEvent(context.dedupeId)) return
-      this.touchSessionActivity(context.contextId)
-      this.log(`[MENTION] ${context.userId} in ${context.contextId}: ${context.text}`)
+      const sessionId = resolveSessionId(context.channelId, context.replyThreadTs, this.threadIsolation)
+      this.touchSessionActivity(sessionId)
+      this.log(`[MENTION] ${context.userId} in ${sessionId}: ${context.text}`)
 
       const query = context.text.replace(/<@[A-Z0-9]+>/g, "").trim()
       if (!query) return
       if (!this.checkRateLimit(context.userId)) return
 
-      await this.processQuery(context, query, client)
+      await this.processQuery(context, sessionId, query, client)
     })
 
     // -------------------------------------------------------------------------
@@ -282,8 +306,9 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       }
 
       if (this.isDuplicateEvent(context.dedupeId)) return
-      this.touchSessionActivity(context.contextId)
-      this.log(`[MSG] ${context.userId} in ${context.contextId}: ${context.text}`)
+      const sessionId = resolveSessionId(context.channelId, context.replyThreadTs, this.threadIsolation)
+      this.touchSessionActivity(sessionId)
+      this.log(`[MSG] ${context.userId} in ${sessionId}: ${context.text}`)
 
       const match = context.text.match(new RegExp(`^${TRIGGER}\\s+(.+)`, "i"))
       if (!match) return
@@ -291,21 +316,23 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
 
       // Handle commands
       if (query.startsWith("/")) {
-        await this.handleCommand(context.contextId, query, async (text) => {
-          await postThreadReply(client, context.channelId, context.replyThreadTs, text)
+        await this.handleCommand(sessionId, query, async (text) => {
+          await this.sendReply(client, context, text)
         })
         return
       }
 
       if (!this.checkRateLimit(context.userId)) return
-      await this.processQuery(context, query, client)
+      await this.processQuery(context, sessionId, query, client)
     })
 
     // -------------------------------------------------------------------------
     // Handler 3: plain thread reply (no trigger, no mention)
     // Only forwarded when an active session already exists for that thread.
+    // Only active when threadIsolation is enabled.
     // -------------------------------------------------------------------------
     this.app.message(async ({ message, body, client }) => {
+      if (!this.threadIsolation) return
       if (!("text" in message) || !message.text) return
       if (!("user" in message) || !message.user) return
       if (!("channel" in message) || !message.channel) return
@@ -337,14 +364,15 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       if (this.isDuplicateEvent(context.dedupeId)) return
 
       // Only forward if there is already a session for this thread
-      if (!this.sessionManager.has(context.contextId)) {
+      const sessionId = resolveSessionId(context.channelId, context.replyThreadTs, this.threadIsolation)
+      if (!this.sessionManager.has(sessionId)) {
         return
       }
 
-      this.log(`[THREAD] ${context.userId} in ${context.contextId}: ${context.text}`)
-      this.touchSessionActivity(context.contextId)
+      this.log(`[THREAD] ${context.userId} in ${sessionId}: ${context.text}`)
+      this.touchSessionActivity(sessionId)
       if (!this.checkRateLimit(context.userId)) return
-      await this.processQuery(context, context.text.trim(), client)
+      await this.processQuery(context, sessionId, context.text.trim(), client)
     })
 
     await this.app.start()
@@ -367,10 +395,23 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
   // ---------------------------------------------------------------------------
 
   /**
+   * Send a reply, respecting threadIsolation config.
+   * When true: always reply in thread via thread_ts.
+   * When false: reply in channel (no thread_ts).
+   */
+  private async sendReply(slackClient: any, context: SlackEventContext, text: string): Promise<void> {
+    if (this.threadIsolation) {
+      await postThreadReply(slackClient, context.channelId, context.replyThreadTs, text)
+    } else {
+      await slackClient.chat.postMessage({ channel: context.channelId, text })
+    }
+  }
+
+  /**
    * Refresh lastActivity timestamp on an existing session.
    */
-  private touchSessionActivity(contextId: string): void {
-    const session = this.sessionManager.get(contextId)
+  private touchSessionActivity(sessionId: string): void {
+    const session = this.sessionManager.get(sessionId)
     if (session) session.lastActivity = new Date()
   }
 
@@ -378,21 +419,16 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
   // Query processing
   // ---------------------------------------------------------------------------
 
-  private async processQuery(context: SlackEventContext, query: string, slackClient: any): Promise<void> {
+  private async processQuery(context: SlackEventContext, sessionId: string, query: string, slackClient: any): Promise<void> {
     const startTime = Date.now()
 
-    // Guard against concurrent queries on the same thread
-    if (this.isQueryActive(context.contextId)) {
-      await postThreadReply(
-        slackClient,
-        context.channelId,
-        context.replyThreadTs,
-        "A request is already running in this thread. Please wait for it to finish."
-      )
+    // Guard against concurrent queries on the same session
+    if (this.isQueryActive(sessionId)) {
+      await this.sendReply(slackClient, context, "A request is already running. Please wait for it to finish.")
       return
     }
 
-    this.markQueryActive(context.contextId)
+    this.markQueryActive(sessionId)
 
     let session: ChannelSession | null = null
     let client: ACPClient | null = null
@@ -407,7 +443,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
         if (activity.message !== lastActivityMessage) {
           lastActivityMessage = activity.message
           session.lastActivity = new Date()
-          await postThreadReply(slackClient, context.channelId, context.replyThreadTs, `> ${activity.message}`)
+          await this.sendReply(slackClient, context, `> ${activity.message}`)
         }
       }
     }
@@ -419,13 +455,12 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     }
 
     try {
-      session = await this.getOrCreateSession(context.contextId, (client) => ({
+      session = await this.getOrCreateSession(sessionId, (client) => ({
         ...this.createBaseSession(client),
       }))
 
       if (!session) {
-        await postThreadReply(slackClient, context.channelId, context.replyThreadTs,
-          "Sorry, I couldn't connect to the AI service.")
+        await this.sendReply(slackClient, context, "Sorry, I couldn't connect to the AI service.")
         return
       }
 
@@ -445,7 +480,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       for (const imagePath of toolPaths) {
         if (fs.existsSync(imagePath)) {
           this.log(`Uploading image from tool result: ${imagePath}`)
-          await this.uploadImage(context.channelId, imagePath, context.replyThreadTs)
+          await this.uploadImage(context.channelId, imagePath, this.threadIsolation ? context.replyThreadTs : undefined)
         }
       }
 
@@ -455,7 +490,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
         if (toolPaths.includes(imagePath)) continue
         if (fs.existsSync(imagePath)) {
           this.log(`Uploading image from response: ${imagePath}`)
-          await this.uploadImage(context.channelId, imagePath, context.replyThreadTs)
+          await this.uploadImage(context.channelId, imagePath, this.threadIsolation ? context.replyThreadTs : undefined)
         }
       }
 
@@ -463,24 +498,23 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
       if (cleanResponse) {
         session.outputChars += cleanResponse.length
-        await postThreadReply(slackClient, context.channelId, context.replyThreadTs, cleanResponse)
+        await this.sendReply(slackClient, context, cleanResponse)
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
       const tools = toolCallCount > 0 ? `, ${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}` : ""
-      this.log(`[DONE] ${elapsed}s (${cleanResponse?.length ?? 0} chars${tools}) [${context.contextId}]`)
+      this.log(`[DONE] ${elapsed}s (${cleanResponse?.length ?? 0} chars${tools}) [${sessionId}]`)
     } catch (err) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      this.logError(`[FAIL] ${elapsed}s [${context.contextId}]:`, err)
-      await postThreadReply(slackClient, context.channelId, context.replyThreadTs,
-        "Sorry, something went wrong processing your request.")
+      this.logError(`[FAIL] ${elapsed}s [${sessionId}]:`, err)
+      await this.sendReply(slackClient, context, "Sorry, something went wrong processing your request.")
     } finally {
       client?.off("activity", activityHandler)
       client?.off("chunk", chunkHandler)
       client?.off("update", updateHandler)
       // Reset inactivity clock from moment of delivery
       if (session) session.lastActivity = new Date()
-      this.markQueryDone(context.contextId)
+      this.markQueryDone(sessionId)
     }
   }
 

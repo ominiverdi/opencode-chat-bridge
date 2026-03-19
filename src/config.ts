@@ -41,6 +41,11 @@ export interface WhatsAppConfig {
   allowedNumbers: string[]
 }
 
+export interface SlackConfig {
+  enabled: boolean
+  threadIsolation: boolean  // true: per-thread sessions + thread replies, false: per-channel
+}
+
 export interface ChatBridgeConfig {
   botName: string
   trigger: string
@@ -52,6 +57,7 @@ export interface ChatBridgeConfig {
   matrix: MatrixConfig
   mattermost: MattermostConfig
   whatsapp: WhatsAppConfig
+  slack: SlackConfig
 }
 
 // Default configuration
@@ -93,6 +99,10 @@ const defaultConfig: ChatBridgeConfig = {
     enabled: false,
     authFolder: "./.whatsapp-auth",
     allowedNumbers: []
+  },
+  slack: {
+    enabled: false,
+    threadIsolation: true,  // Per-thread sessions by default
   }
 }
 
