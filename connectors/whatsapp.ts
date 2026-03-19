@@ -55,7 +55,7 @@ const logger = {
 }
 
 const config = getConfig()
-const TRIGGER = config.trigger
+const TRIGGER = process.env.WHATSAPP_TRIGGER || config.trigger
 const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const ALLOWED_NUMBERS = config.whatsapp.allowedNumbers
