@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Slack thread isolation** - Sessions are now keyed per thread (`channel:threadTs`)
+  instead of per channel. Each Slack thread gets its own isolated OpenCode session.
+  Replies always stay in threads. Implicit follow-ups work without re-mentioning
+  the bot. Inspired by PR #2, reimplemented with proper separation of concerns.
+- **Event deduplication (all connectors)** - New `EventDeduplicator` in BaseConnector
+  prevents duplicate event processing. Tracks recently seen event IDs with automatic
+  eviction. Protects against Slack retries, Matrix sync replays, Discord
+  re-deliveries, and Mattermost WebSocket replays.
+- **Active query guard (all connectors)** - Prevents concurrent queries on the same
+  session. Users get a clear "request already running" message. Sessions with
+  in-flight queries are protected from expiry.
+- **Runtime session expiry** - New `SESSION_RETENTION_MINS` config (default: 30 for
+  Slack). Background sweep loop expires inactive in-memory sessions and cleans up
+  their on-disk cache directories. Coexists with existing `SESSION_RETENTION_DAYS`
+  startup cleanup.
 - **Document attachment support (WhatsApp)** - New `[DOCLIBRARY_DOC]` marker and
   `sendDocumentFromFile` method for sending PDF, CSV, XLSX, and other document
   types as native WhatsApp file attachments. Same pattern as image handling.
