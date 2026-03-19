@@ -270,27 +270,37 @@ for (const match of docMatches) {
 
 ## Session Management
 
-Currently, ACPClient maintains a single session. For multi-room chat:
+Each connector creates one ACPClient per conversation context. The session key
+varies by platform:
 
-### Option 1: One client per room
+| Platform | Session Key | Isolation |
+|----------|-------------|-----------|
+| Slack | `channel:threadTs` | Per-thread |
+| Matrix | `roomId` | Per-room |
+| Discord | `channelId` | Per-channel |
+| Mattermost | `channelId` | Per-channel |
+| WhatsApp | `chatId` | Per-chat |
 
-```typescript
-const roomClients = new Map<string, ACPClient>()
+`BaseConnector.getOrCreateSession()` handles creating the ACPClient, connecting,
+and session setup. `SessionManager` tracks all active sessions.
 
-async function getClient(roomId: string) {
-  if (!roomClients.has(roomId)) {
-    const client = new ACPClient({ cwd: process.cwd() })
-    await client.connect()
-    await client.createSession()
-    roomClients.set(roomId, client)
-  }
-  return roomClients.get(roomId)
-}
-```
+### Runtime Session Expiry
 
-### Option 2: Session forking (future)
+`BaseConnector` provides an optional background sweep that expires inactive
+sessions after `SESSION_RETENTION_MINS` minutes. Sessions with active in-flight
+queries are protected from eviction. On expiry, both the in-memory session and
+on-disk cache directory are cleaned up.
 
-ACP supports session forking for branching conversations.
+### Event Deduplication
+
+`EventDeduplicator` prevents duplicate event processing. All platforms can
+deliver duplicate events (Slack retries, Matrix syncs, Discord re-deliveries).
+Events are tracked by ID with a 5-minute eviction window.
+
+### Active Query Guard
+
+Concurrent queries on the same session are rejected with a user-visible message.
+The guard also protects busy sessions from being evicted by the expiry sweep.
 
 ## MCP Tool Integration
 
@@ -310,50 +320,15 @@ Dangerous servers like `chrome-devtools` are blocked by the permission config.
 
 ### 1. Session Persistence
 
-Save session IDs to survive restarts:
+Save session IDs to survive restarts (currently in-memory sessions are lost).
 
-```typescript
-// On create
-fs.writeFileSync("sessions.json", JSON.stringify({
-  [roomId]: sessionId
-}))
+### 2. Thread Isolation for Other Platforms
 
-// On start
-const sessions = JSON.parse(fs.readFileSync("sessions.json"))
-```
+Slack uses per-thread sessions. Discord and Mattermost also have thread
+concepts that could benefit from similar isolation.
 
-### 2. Multi-session Support
+### 3. Opt-in Base Features for Other Connectors
 
-Extend ACPClient to manage multiple sessions:
-
-```typescript
-class MultiSessionClient extends ACPClient {
-  private sessions = new Map<string, string>()
-  
-  async createSession(id: string) {
-    const sessionId = await super.createSession()
-    this.sessions.set(id, sessionId)
-  }
-  
-  async prompt(id: string, text: string) {
-    const sessionId = this.sessions.get(id)
-    // Use specific session
-  }
-}
-```
-
-### 3. Rate Limiting
-
-Add per-user rate limiting for chat connectors:
-
-```typescript
-const userLimits = new Map<string, number>()
-
-function checkLimit(userId: string): boolean {
-  const now = Date.now()
-  const lastRequest = userLimits.get(userId) || 0
-  if (now - lastRequest < 5000) return false // 5 second cooldown
-  userLimits.set(userId, now)
-  return true
-}
-```
+Event deduplication, active query guard, and session expiry are available in
+`BaseConnector` but currently only Slack opts in. Matrix, Discord, Mattermost,
+and WhatsApp connectors need small changes to call these methods.

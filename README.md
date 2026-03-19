@@ -28,7 +28,7 @@ Supports **E2EE (encrypted rooms)**, image uploads, and integrates with Element 
 
 <img src="images/slack.png" width="400" alt="Slack connector" />
 
-Uses Socket Mode for real-time messaging without requiring a public server.
+Uses Socket Mode for real-time messaging without requiring a public server. Each thread gets its own isolated session -- reply naturally without re-mentioning the bot.
 
 ### WhatsApp
 
