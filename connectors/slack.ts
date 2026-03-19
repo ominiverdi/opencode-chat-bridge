@@ -37,14 +37,14 @@ import {
 // Configuration
 // =============================================================================
 
+const config = getConfig()
+
 const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
 const APP_TOKEN = process.env.SLACK_APP_TOKEN
-const TRIGGER = process.env.SLACK_TRIGGER || process.env.TRIGGER || "!oc"
+const TRIGGER = process.env.SLACK_TRIGGER || config.trigger
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 const SESSION_RETENTION_MINS = parseSessionRetentionMins(process.env)
 const RATE_LIMIT_SECONDS = 5
-
-const config = getConfig()
 const THREAD_ISOLATION = config.slack.threadIsolation
 
 function parseSessionRetentionMins(env: NodeJS.ProcessEnv): number {
