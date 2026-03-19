@@ -227,3 +227,34 @@ describe("shouldHandleThreadMessage", () => {
     })).toBe(false)
   })
 })
+
+// =============================================================================
+// resolveSessionId
+// =============================================================================
+
+import { resolveSessionId } from "../../connectors/slack"
+
+describe("resolveSessionId", () => {
+  test("returns channel:threadTs when threadIsolation is true", () => {
+    const id = resolveSessionId("C001", "1710000000.111", true)
+    expect(id).toBe("C001:1710000000.111")
+  })
+
+  test("returns plain channel when threadIsolation is false", () => {
+    const id = resolveSessionId("C001", "1710000000.111", false)
+    expect(id).toBe("C001")
+  })
+
+  test("two threads in same channel get same ID when isolation is off", () => {
+    const id1 = resolveSessionId("C001", "1710000000.111", false)
+    const id2 = resolveSessionId("C001", "1710000000.222", false)
+    expect(id1).toBe(id2)
+    expect(id1).toBe("C001")
+  })
+
+  test("two threads in same channel get different IDs when isolation is on", () => {
+    const id1 = resolveSessionId("C001", "1710000000.111", true)
+    const id2 = resolveSessionId("C001", "1710000000.222", true)
+    expect(id1).not.toBe(id2)
+  })
+})
