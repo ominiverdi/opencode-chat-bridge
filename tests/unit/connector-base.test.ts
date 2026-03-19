@@ -311,3 +311,67 @@ describe("CommandHandler", () => {
     })
   })
 })
+
+// =============================================================================
+// EventDeduplicator
+// =============================================================================
+
+import { EventDeduplicator } from "../../src/connector-base"
+
+describe("EventDeduplicator", () => {
+  let dedup: EventDeduplicator
+
+  beforeEach(() => {
+    dedup = new EventDeduplicator()
+  })
+
+  test("allows first occurrence of an event", () => {
+    expect(dedup.isDuplicate("event-1")).toBe(false)
+  })
+
+  test("blocks duplicate events", () => {
+    dedup.isDuplicate("event-1")
+    expect(dedup.isDuplicate("event-1")).toBe(true)
+  })
+
+  test("tracks different events independently", () => {
+    expect(dedup.isDuplicate("event-1")).toBe(false)
+    expect(dedup.isDuplicate("event-2")).toBe(false)
+    expect(dedup.isDuplicate("event-1")).toBe(true)
+    expect(dedup.isDuplicate("event-2")).toBe(true)
+  })
+
+  test("evicts entries older than maxAgeMs", async () => {
+    // Use a very short TTL for testing
+    const fastDedup = new EventDeduplicator(100) // 100ms
+    fastDedup.isDuplicate("event-1")
+    expect(fastDedup.isDuplicate("event-1")).toBe(true)
+
+    await new Promise(resolve => setTimeout(resolve, 150))
+
+    // After TTL, should be treated as new
+    expect(fastDedup.isDuplicate("event-1")).toBe(false)
+  })
+
+  test("clear removes all tracking", () => {
+    dedup.isDuplicate("event-1")
+    dedup.isDuplicate("event-2")
+    expect(dedup.size).toBe(2)
+
+    dedup.clear()
+
+    expect(dedup.size).toBe(0)
+    expect(dedup.isDuplicate("event-1")).toBe(false)
+  })
+
+  test("size reflects tracked event count", () => {
+    expect(dedup.size).toBe(0)
+    dedup.isDuplicate("a")
+    dedup.isDuplicate("b")
+    dedup.isDuplicate("c")
+    expect(dedup.size).toBe(3)
+    // Duplicate does not increase size
+    dedup.isDuplicate("a")
+    expect(dedup.size).toBe(3)
+  })
+})
