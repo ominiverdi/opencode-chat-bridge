@@ -59,6 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Shows both the permission denial and the tool error to users
 
 ### Changed
+### Fixed
+- **Trigger env var inconsistency** - All connectors now support per-connector
+  trigger overrides (`SLACK_TRIGGER`, `MATTERMOST_TRIGGER`, etc.) with fallback
+  to `chat-bridge.json`. Previously only Slack and Discord had env overrides.
+
+### Changed
 - **Generic tool activity formatting** - Tool activity messages now show
   `key=value, key=value [toolname]` for ANY tool, removing hardcoded formatting.
   This ensures new MCP tools display useful context automatically.

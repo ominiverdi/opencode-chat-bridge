@@ -68,6 +68,9 @@ Add the tokens to your `.env` file:
 ```bash
 SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_APP_TOKEN=xapp-your-app-token-here
+
+# Optional: override trigger prefix (default: !oc)
+# SLACK_TRIGGER=!oc
 ```
 
 ## Step 7: Run the Connector

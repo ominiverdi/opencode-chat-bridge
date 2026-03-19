@@ -72,6 +72,9 @@ MATTERMOST_TOKEN=your_bot_access_token
 
 # Team name/slug (optional -- auto-detected if bot is in one team)
 # MATTERMOST_TEAM=myteam
+
+# Optional: override trigger prefix (default: !oc)
+# MATTERMOST_TRIGGER=!oc
 ```
 
 And configure the connector in `chat-bridge.json`:
