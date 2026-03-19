@@ -104,6 +104,7 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
 
     // Login
     await this.client.login(BOT_TOKEN)
+    this.startSessionExpiryLoop()
   }
 
   async stop(): Promise<void> {
@@ -161,6 +162,9 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
 
     if (!query) return
 
+    // Deduplicate events (Discord re-deliveries)
+    if (this.isDuplicateEvent(message.id)) return
+
     this.log(`[MSG] ${message.author.tag} in ${channelId}: ${content}`)
 
     // Handle commands
@@ -183,6 +187,13 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
   private async processQuery(message: Message, query: string): Promise<void> {
     const startTime = Date.now()
     const channelId = message.channelId
+
+    // Guard against concurrent queries on the same session
+    if (this.isQueryActive(channelId)) {
+      await message.reply("A request is already running. Please wait for it to finish.")
+      return
+    }
+    this.markQueryActive(channelId)
 
     // Get or create session
     const session = await this.getOrCreateSession(channelId, (client) =>
@@ -288,6 +299,7 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
+      this.markQueryDone(channelId)
     }
   }
 

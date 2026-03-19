@@ -97,12 +97,36 @@ Once the bot is in a channel:
 ```
 !oc what time is it?
 !oc search the web for climate change
-!oc show me page 50 of usgs_snyder
 ```
 
 Or mention the bot directly:
 ```
 @oc-bot what's the weather like?
+```
+
+### Thread Isolation
+
+Every conversation happens inside a Slack thread:
+
+- **@mention or trigger** in a channel starts a new thread with its own session
+- **Replies within the thread** are forwarded automatically -- no need to re-mention the bot
+- **Different threads** have completely separate sessions and context
+- **Sessions expire** after inactivity (default: 30 minutes, configurable via `SESSION_RETENTION_MINS`)
+
+This means multiple conversations can run in parallel in the same channel without interfering with each other.
+
+### Session Expiry
+
+Inactive sessions are cleaned up automatically:
+
+| Config | Default | Purpose |
+|--------|---------|---------|
+| `SESSION_RETENTION_MINS` | 30 | Runtime expiry after inactivity |
+| `SESSION_RETENTION_DAYS` | 7 | Startup cleanup of old on-disk sessions |
+
+Set in `.env`:
+```bash
+SESSION_RETENTION_MINS=30
 ```
 
 ### Commands
