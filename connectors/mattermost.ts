@@ -173,6 +173,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
     // Connect WebSocket
     await this.connectWebSocket()
 
+    this.startSessionExpiryLoop()
     this.log("Started! Listening for messages...")
   }
 
@@ -331,6 +332,10 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       const message = (post.message || "").trim()
       if (!message) return
 
+      // Deduplicate events (WebSocket replays)
+      const dedupeId = `${channelId}:${post.id}`
+      if (this.isDuplicateEvent(dedupeId)) return
+
       // Check if this is a DM channel
       const channelType = data.data.channel_type || ""
       const isDM = channelType === "D"
@@ -402,6 +407,13 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
 
   private async processQuery(channelId: string, userId: string, query: string): Promise<void> {
     const startTime = Date.now()
+
+    // Guard against concurrent queries on the same session
+    if (this.isQueryActive(channelId)) {
+      await this.sendMessage(channelId, "A request is already running. Please wait for it to finish.")
+      return
+    }
+    this.markQueryActive(channelId)
 
     // Get or create session
     const session = await this.getOrCreateSession(channelId, (client) =>
@@ -565,6 +577,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       client.off("update", updateHandler)
       client.off("image", imageHandler)
       client.off("permission_rejected", permissionHandler)
+      this.markQueryDone(channelId)
     }
   }
 
