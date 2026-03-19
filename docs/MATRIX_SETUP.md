@@ -124,6 +124,26 @@ Or mention the bot directly:
 @my-opencode-bot what's the weather?
 ```
 
+### Thread Isolation
+
+When thread isolation is enabled (default), each Matrix thread gets its own session:
+
+- **Trigger or mention** in a room starts a new thread with its own session
+- **Replies within the thread** are forwarded automatically (using `m.thread` relations)
+- **Different threads** have completely separate sessions and context
+- **Clients without thread support** see replies as a reply chain (via `m.in_reply_to` fallback)
+
+Configure in `chat-bridge.json`:
+```json
+{
+  "matrix": {
+    "threadIsolation": true
+  }
+}
+```
+
+Set to `false` for per-room sessions (old behavior).
+
 ### Commands
 
 | Command | Description |

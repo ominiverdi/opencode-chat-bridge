@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Thread isolation (Slack + Mattermost)** - Sessions are now keyed per thread (`channel:threadTs`)
+- **Thread isolation (Slack, Mattermost, Matrix)** - Sessions are now keyed per thread (`channel:threadTs`)
   instead of per channel. Each Slack thread gets its own isolated OpenCode session.
   Replies always stay in threads. Implicit follow-ups work without re-mentioning
   the bot. Configurable via `threadIsolation` in chat-bridge.json (default: true).
