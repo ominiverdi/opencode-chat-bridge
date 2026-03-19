@@ -1,20 +1,23 @@
 #!/usr/bin/env bun
 /**
  * Mattermost Connector for OpenCode Chat Bridge
- * 
+ *
  * Bridges Mattermost channels to OpenCode via ACP protocol.
  * Uses Mattermost REST API v4 + WebSocket for real-time events.
  * Zero external dependencies -- uses native fetch and WebSocket.
- * 
+ *
+ * Thread Isolation (configurable via chat-bridge.json mattermost.threadIsolation):
+ *   When enabled, sessions are keyed on channel:rootPostId so each Mattermost
+ *   thread gets its own isolated OpenCode session. Plain replies within a thread
+ *   are forwarded to the bot automatically.
+ *
  * Usage:
  *   bun connectors/mattermost.ts
- * 
+ *
  * Environment variables:
  *   MATTERMOST_URL    - Server URL (e.g., https://mattermost.example.com)
  *   MATTERMOST_TOKEN  - Bot access token (from Integrations > Bot Accounts)
  *   MATTERMOST_TEAM   - Team name/slug (optional, auto-detected if bot is in one team)
- * 
- * Or configure via chat-bridge.json under the "mattermost" key.
  */
 
 import fs from "fs"
@@ -41,6 +44,7 @@ const TRIGGER = config.trigger
 const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
+const THREAD_ISOLATION = config.mattermost.threadIsolation
 
 // =============================================================================
 // Mattermost API helpers
@@ -103,18 +107,113 @@ async function mmUploadFile(channelId: string, filePath: string): Promise<string
 }
 
 // =============================================================================
+// Thread Context Helpers (pure, exported for testing)
+// =============================================================================
+
+/**
+ * Normalized context extracted from a Mattermost posted event.
+ */
+export interface MattermostEventContext {
+  channelId: string
+  userId: string
+  text: string
+  postId: string
+  /** Non-empty when this post is a thread reply */
+  rootId: string
+  /** The root post ID to use when replying (rootId or postId for top-level) */
+  replyRootId: string
+  /** Session key: channel:rootPostId (thread isolation) or channel (per-channel) */
+  sessionId: string
+  /** Idempotency key: channel:postId */
+  dedupeId: string
+}
+
+/**
+ * Resolve the thread root post ID.
+ * If the post has a root_id it is a reply; otherwise the post itself starts the thread.
+ */
+export function resolveRootId(rootId: string | undefined, postId: string): string {
+  return rootId || postId
+}
+
+/**
+ * Build the session key.
+ * When threadIsolation is true: channel:rootPostId (per-thread)
+ * When false: channel (per-channel, old behavior)
+ */
+export function buildMattermostSessionId(
+  channelId: string,
+  replyRootId: string,
+  threadIsolation: boolean
+): string {
+  if (threadIsolation) {
+    return `${channelId}:${replyRootId}`
+  }
+  return channelId
+}
+
+/**
+ * Normalize raw Mattermost post fields into a consistent MattermostEventContext.
+ */
+export function normalizeMattermostEventContext(
+  input: {
+    channelId: string
+    userId?: string
+    text?: string
+    postId: string
+    rootId?: string
+  },
+  threadIsolation: boolean
+): MattermostEventContext {
+  const channelId = input.channelId
+  const postId = input.postId
+  const rootId = input.rootId || ""
+  const replyRootId = resolveRootId(rootId || undefined, postId)
+
+  return {
+    channelId,
+    userId: input.userId || "unknown",
+    text: input.text || "",
+    postId,
+    rootId,
+    replyRootId,
+    sessionId: buildMattermostSessionId(channelId, replyRootId, threadIsolation),
+    dedupeId: `${channelId}:${postId}`,
+  }
+}
+
+/**
+ * Returns true if a plain thread reply (no trigger, no mention) should be
+ * considered for forwarding to the bot.
+ * The caller must still check whether an active session exists for the thread.
+ */
+export function shouldHandleThreadReply(input: {
+  text: string
+  rootId: string
+  trigger: string
+  botUsername: string
+}): boolean {
+  const text = input.text.trim()
+  if (!text) return false
+  if (!input.rootId) return false
+  if (text.toLowerCase().startsWith(`${input.trigger.toLowerCase()} `)) return false
+  if (text.toLowerCase().startsWith(`${input.trigger.toLowerCase()}`)) return false
+  if (text.startsWith(`@${input.botUsername} `)) return false
+  if (text.startsWith(`@${input.botUsername}`)) return false
+  return true
+}
+
+// =============================================================================
 // Session Type
 // =============================================================================
 
-interface ChannelSession extends BaseSession {
-  // Mattermost-specific fields can be added here if needed
-}
+interface ChannelSession extends BaseSession {}
 
 // =============================================================================
 // Mattermost Connector
 // =============================================================================
 
-class MattermostConnector extends BaseConnector<ChannelSession> {
+export class MattermostConnector extends BaseConnector<ChannelSession> {
   private ws: WebSocket | null = null
   private botUserId: string = ""
   private botUsername: string = ""
@@ -123,6 +222,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
   private maxReconnectAttempts: number = 10
   private reconnectDelay: number = 3000
   private pingInterval: NodeJS.Timer | null = null
+  private threadIsolation: boolean
 
   constructor() {
     super({
@@ -132,14 +232,14 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       rateLimitSeconds: RATE_LIMIT_SECONDS,
       sessionRetentionDays: SESSION_RETENTION_DAYS,
     })
+    this.threadIsolation = THREAD_ISOLATION
   }
 
   // ---------------------------------------------------------------------------
-  // Abstract method implementations
+  // Lifecycle
   // ---------------------------------------------------------------------------
 
   async start(): Promise<void> {
-    // Validate configuration
     if (!MM_URL) {
       console.error("Error: MATTERMOST_URL not set")
       console.error("Set it in .env or chat-bridge.json mattermost.url")
@@ -154,6 +254,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
     this.log("Starting...")
     console.log(`  Server: ${MM_URL}`)
     this.logStartup()
+    console.log(`  Thread isolation: ${this.threadIsolation ? "on (per-thread sessions)" : "off (per-channel sessions)"}`)
     await this.cleanupSessions()
 
     // Get bot user info
@@ -170,7 +271,6 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       process.exit(1)
     }
 
-    // Connect WebSocket
     await this.connectWebSocket()
 
     this.startSessionExpiryLoop()
@@ -191,27 +291,36 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
     this.log("Stopped.")
   }
 
-  async sendMessage(channelId: string, text: string): Promise<void> {
+  /**
+   * Send a message to a channel, optionally as a thread reply.
+   */
+  async sendMessage(channelId: string, text: string, rootId?: string): Promise<void> {
     try {
-      // Mattermost has a 16383 character limit per post
       const MAX_LEN = 16000
+      const payload: any = { channel_id: channelId }
+      if (rootId) payload.root_id = rootId
+
       if (text.length > MAX_LEN) {
-        // Split into multiple messages
         const chunks = this.splitMessage(text, MAX_LEN)
         for (const chunk of chunks) {
-          await mmApi("POST", "/posts", {
-            channel_id: channelId,
-            message: chunk,
-          })
+          await mmApi("POST", "/posts", { ...payload, message: chunk })
         }
       } else {
-        await mmApi("POST", "/posts", {
-          channel_id: channelId,
-          message: text,
-        })
+        await mmApi("POST", "/posts", { ...payload, message: text })
       }
     } catch (err) {
       this.logError(`Failed to send message to ${channelId}:`, err)
+    }
+  }
+
+  /**
+   * Send a reply, respecting threadIsolation config.
+   */
+  private async sendReply(context: MattermostEventContext, text: string): Promise<void> {
+    if (this.threadIsolation) {
+      await this.sendMessage(context.channelId, text, context.replyRootId)
+    } else {
+      await this.sendMessage(context.channelId, text)
     }
   }
 
@@ -230,7 +339,6 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       this.ws.onopen = () => {
         this.log("WebSocket connected, authenticating...")
         this.wsSeq = 1
-        // Authenticate
         this.ws!.send(JSON.stringify({
           seq: this.wsSeq++,
           action: "authentication_challenge",
@@ -242,7 +350,6 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
         try {
           const data = JSON.parse(event.data as string)
 
-          // Auth response
           if (data.seq_reply === 1 && data.status === "OK") {
             this.log("WebSocket authenticated")
             this.reconnectAttempts = 0
@@ -251,7 +358,6 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
             return
           }
 
-          // Handle events
           if (data.event === "posted") {
             this.handlePostedEvent(data)
           }
@@ -273,7 +379,6 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
         this.handleReconnect()
       }
 
-      // Timeout for initial connection
       setTimeout(() => {
         if (this.ws?.readyState !== WebSocket.OPEN) {
           reject(new Error("WebSocket connection timeout"))
@@ -283,7 +388,6 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
   }
 
   private startPing(): void {
-    // Send ping every 30 seconds to keep connection alive
     this.pingInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({
@@ -322,19 +426,23 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
     try {
       const post = JSON.parse(data.data.post)
 
-      // Ignore own messages
+      // Ignore own messages and system messages
       if (post.user_id === this.botUserId) return
-
-      // Ignore system messages
       if (post.type && post.type !== "") return
 
-      const channelId = post.channel_id
       const message = (post.message || "").trim()
       if (!message) return
 
+      const context = normalizeMattermostEventContext({
+        channelId: post.channel_id,
+        userId: post.user_id,
+        text: message,
+        postId: post.id,
+        rootId: post.root_id || "",
+      }, this.threadIsolation)
+
       // Deduplicate events (WebSocket replays)
-      const dedupeId = `${channelId}:${post.id}`
-      if (this.isDuplicateEvent(dedupeId)) return
+      if (this.isDuplicateEvent(context.dedupeId)) return
 
       // Check if this is a DM channel
       const channelType = data.data.channel_type || ""
@@ -343,13 +451,10 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       // Check ignore lists
       const ignoreChannels = config.mattermost.ignoreChannels || []
       const ignoreUsers = config.mattermost.ignoreUsers || []
-      if (ignoreChannels.includes(channelId)) return
-      if (ignoreUsers.includes(post.user_id)) return
+      if (ignoreChannels.includes(context.channelId)) return
+      if (ignoreUsers.includes(context.userId)) return
 
-      // Get sender username for logging
-      const senderName = data.data.sender_name || post.user_id
-
-      this.log(`[MSG] ${senderName}: ${message}`)
+      const senderName = data.data.sender_name || context.userId
 
       // Extract query based on trigger, @mention, or DM
       let query = ""
@@ -363,39 +468,52 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       } else if (config.mattermost.respondToMentions && message.startsWith(mention)) {
         query = message.slice(mention.length).trim()
       } else if (isDM) {
-        // In DM channels, respond to all messages without trigger
         query = message
+      } else if (this.threadIsolation && shouldHandleThreadReply({
+        text: message,
+        rootId: context.rootId,
+        trigger: TRIGGER,
+        botUsername: this.botUsername,
+      }) && this.sessionManager.has(context.sessionId)) {
+        // Implicit thread follow-up: plain reply in a thread with an active session
+        query = message
+        this.log(`[THREAD] ${senderName} in ${context.sessionId}: ${message}`)
       } else {
         return
       }
 
       if (!query) return
 
+      // Touch session activity
+      const existingSession = this.sessionManager.get(context.sessionId)
+      if (existingSession) existingSession.lastActivity = new Date()
+
+      this.log(`[MSG] ${senderName} in ${context.sessionId}: ${message}`)
+
       // Handle commands
       if (query.startsWith("/")) {
         const cmdName = query.slice(1).split(" ")[0].toLowerCase()
         const bridgeCommands = ["status", "clear", "reset", "help"]
         if (bridgeCommands.includes(cmdName)) {
-          const existingSession = this.sessionManager.get(channelId)
           const openCodeCommands = existingSession?.client.availableCommands || []
-          await this.handleCommand(channelId, query, async (text) => {
-            await this.sendMessage(channelId, text)
+          await this.handleCommand(context.sessionId, query, async (text) => {
+            await this.sendReply(context, text)
           }, { openCodeCommands })
           return
         }
 
         // Forward other /commands to OpenCode
         this.log(`[CMD] Forwarding to OpenCode: ${query}`)
-        if (!this.checkRateLimit(post.user_id)) return
-        await this.processQuery(channelId, post.user_id, query)
+        if (!this.checkRateLimit(context.userId)) return
+        await this.processQuery(context, query)
         return
       }
 
       // Rate limiting
-      if (!this.checkRateLimit(post.user_id)) return
+      if (!this.checkRateLimit(context.userId)) return
 
-      this.log(`[QUERY] ${channelId}: ${query}`)
-      await this.processQuery(channelId, post.user_id, query)
+      this.log(`[QUERY] ${context.sessionId}: ${query}`)
+      await this.processQuery(context, query)
     } catch (err) {
       this.logError("Error handling posted event:", err)
     }
@@ -405,23 +523,23 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
   // Query processing
   // ---------------------------------------------------------------------------
 
-  private async processQuery(channelId: string, userId: string, query: string): Promise<void> {
+  private async processQuery(context: MattermostEventContext, query: string): Promise<void> {
     const startTime = Date.now()
 
     // Guard against concurrent queries on the same session
-    if (this.isQueryActive(channelId)) {
-      await this.sendMessage(channelId, "A request is already running. Please wait for it to finish.")
+    if (this.isQueryActive(context.sessionId)) {
+      await this.sendReply(context, "A request is already running. Please wait for it to finish.")
       return
     }
-    this.markQueryActive(channelId)
+    this.markQueryActive(context.sessionId)
 
     // Get or create session
-    const session = await this.getOrCreateSession(channelId, (client) =>
+    const session = await this.getOrCreateSession(context.sessionId, (client) =>
       this.createSession(client)
     )
 
     if (!session) {
-      await this.sendMessage(channelId, "Sorry, I couldn't connect to the AI service.")
+      await this.sendReply(context, "Sorry, I couldn't connect to the AI service.")
       return
     }
 
@@ -439,23 +557,20 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
     let toolCallCount = 0
     const sentToolOutputs = new Set<string>()
 
-    // Activity events - show what the AI is doing
     const activityHandler = async (activity: ActivityEvent) => {
       if (activity.type === "tool_start") {
         toolCallCount++
         if (activity.message !== lastActivityMessage) {
           lastActivityMessage = activity.message
-          await this.sendMessage(channelId, `> ${activity.message}`)
+          await this.sendReply(context, `> ${activity.message}`)
         }
       }
     }
 
-    // Collect text chunks
     const chunkHandler = (text: string) => {
       responseBuffer += text
     }
 
-    // Handle tool results and streaming
     const updateHandler = async (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
@@ -482,7 +597,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
 
         sentToolOutputs.add(contentHash)
         try {
-          await this.sendMessage(channelId, trimmed)
+          await this.sendReply(context, trimmed)
         } catch (err) {
           this.log(`[RESULT] Error sending: ${err}`)
         }
@@ -500,7 +615,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
             const contentHash = output.slice(0, 100)
             if (!sentToolOutputs.has(contentHash)) {
               sentToolOutputs.add(contentHash)
-              await this.sendMessage(channelId, output)
+              await this.sendReply(context, output)
               this.log(`[STREAM] Sent ${toolName} output (${output.length} chars)`)
             }
           }
@@ -508,19 +623,15 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       }
     }
 
-    // Handle images from tools
     const imageHandler = async (image: ImageContent) => {
       this.log(`Received image: ${image.mimeType}`)
-      // TODO: upload base64 image to Mattermost
     }
 
-    // Handle permission rejections
     const permissionHandler = async (event: { permission: string; path: string | null; message: string }) => {
       this.log(`[PERMISSION] Rejected: ${event.permission}${event.path ? ` (${event.path})` : ""}`)
-      await this.sendMessage(channelId, `> ${event.message}`)
+      await this.sendReply(context, `> ${event.message}`)
     }
 
-    // Set up listeners
     client.on("activity", activityHandler)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
@@ -536,7 +647,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
       for (const imagePath of toolPaths) {
         if (fs.existsSync(imagePath)) {
           this.log(`Uploading image from tool result: ${imagePath}`)
-          await this.sendImageFromFile(channelId, imagePath)
+          await this.sendImageFromFile(context.channelId, imagePath, this.threadIsolation ? context.replyRootId : undefined)
           uploadedPaths.add(imagePath)
         }
       }
@@ -547,7 +658,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
         if (uploadedPaths.has(imagePath)) continue
         if (fs.existsSync(imagePath)) {
           this.log(`Uploading image from response: ${imagePath}`)
-          await this.sendImageFromFile(channelId, imagePath)
+          await this.sendImageFromFile(context.channelId, imagePath, this.threadIsolation ? context.replyRootId : undefined)
         }
       }
 
@@ -559,25 +670,26 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
 
         if (!alreadySent) {
           session.outputChars += cleanResponse.length
-          await this.sendMessage(channelId, cleanResponse)
+          await this.sendReply(context, cleanResponse)
         }
       }
-      // Log elapsed time
+
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
       const outChars = cleanResponse ? cleanResponse.length : 0
       const tools = toolCallCount > 0 ? `, ${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}` : ""
-      this.log(`[DONE] ${elapsed}s (${outChars} chars${tools})`)
+      this.log(`[DONE] ${elapsed}s (${outChars} chars${tools}) [${context.sessionId}]`)
     } catch (err) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      this.logError(`[FAIL] ${elapsed}s:`, err)
-      await this.sendMessage(channelId, "Sorry, something went wrong processing your request.")
+      this.logError(`[FAIL] ${elapsed}s [${context.sessionId}]:`, err)
+      await this.sendReply(context, "Sorry, something went wrong processing your request.")
     } finally {
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)
       client.off("permission_rejected", permissionHandler)
-      this.markQueryDone(channelId)
+      if (session) session.lastActivity = new Date()
+      this.markQueryDone(context.sessionId)
     }
   }
 
@@ -591,7 +703,7 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  private async sendImageFromFile(channelId: string, filePath: string): Promise<void> {
+  private async sendImageFromFile(channelId: string, filePath: string, rootId?: string): Promise<void> {
     try {
       if (!fs.existsSync(filePath)) {
         this.logError(`Image file not found: ${filePath}`)
@@ -600,11 +712,13 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
 
       const fileId = await mmUploadFile(channelId, filePath)
       if (fileId) {
-        await mmApi("POST", "/posts", {
+        const payload: any = {
           channel_id: channelId,
           message: "",
           file_ids: [fileId],
-        })
+        }
+        if (rootId) payload.root_id = rootId
+        await mmApi("POST", "/posts", payload)
         this.log(`Sent image to ${channelId}: ${path.basename(filePath)}`)
       }
     } catch (err) {
@@ -620,7 +734,6 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
         chunks.push(remaining)
         break
       }
-      // Try to split at a newline
       let splitAt = remaining.lastIndexOf("\n", maxLen)
       if (splitAt <= 0) splitAt = maxLen
       chunks.push(remaining.slice(0, splitAt))
@@ -636,21 +749,14 @@ class MattermostConnector extends BaseConnector<ChannelSession> {
 
 async function main() {
   const connector = new MattermostConnector()
-
-  // Handle shutdown
-  process.on("SIGINT", async () => {
-    await connector.stop()
-    process.exit(0)
-  })
-  process.on("SIGTERM", async () => {
-    await connector.stop()
-    process.exit(0)
-  })
-
+  process.on("SIGINT", async () => { await connector.stop(); process.exit(0) })
+  process.on("SIGTERM", async () => { await connector.stop(); process.exit(0) })
   await connector.start()
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err)
-  process.exit(1)
-})
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Fatal error:", err)
+    process.exit(1)
+  })
+}

@@ -278,7 +278,7 @@ varies by platform:
 | Slack | `channel:threadTs` | Per-thread |
 | Matrix | `roomId` | Per-room |
 | Discord | `channelId` | Per-channel |
-| Mattermost | `channelId` | Per-channel |
+| Mattermost | `channelId:rootId` | Per-thread |
 | WhatsApp | `chatId` | Per-chat |
 
 `BaseConnector.getOrCreateSession()` handles creating the ACPClient, connecting,
