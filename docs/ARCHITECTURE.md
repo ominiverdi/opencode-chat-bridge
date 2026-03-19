@@ -276,7 +276,7 @@ varies by platform:
 | Platform | Session Key | Isolation |
 |----------|-------------|-----------|
 | Slack | `channel:threadTs` | Per-thread |
-| Matrix | `roomId` | Per-room |
+| Matrix | `roomId:threadRootEventId` | Per-thread |
 | Discord | `channelId` | Per-channel |
 | Mattermost | `channelId:rootId` | Per-thread |
 | WhatsApp | `chatId` | Per-chat |

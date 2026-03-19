@@ -23,6 +23,7 @@ export interface MatrixConfig {
   ignoreRooms: string[]
   ignoreUsers: string[]
   formatHtml: boolean
+  threadIsolation: boolean  // true: per-thread sessions + thread replies, false: per-room
 }
 
 export interface MattermostConfig {
@@ -85,7 +86,8 @@ const defaultConfig: ChatBridgeConfig = {
     triggerPatterns: ["!oc "],
     ignoreRooms: [],
     ignoreUsers: [],
-    formatHtml: false
+    formatHtml: false,
+    threadIsolation: true,  // Per-thread sessions by default
   },
   mattermost: {
     enabled: false,
