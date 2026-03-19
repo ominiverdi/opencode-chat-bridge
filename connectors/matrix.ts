@@ -153,6 +153,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     // Cross-signing requires User Interactive Auth which bots can't easily do
     // To remove warning: verify bot's device manually from Element
     
+    this.startSessionExpiryLoop()
     this.log("Started! Listening for messages...")
   }
 
@@ -251,6 +252,9 @@ class MatrixConnector extends BaseConnector<RoomSession> {
     const body = message.textBody.trim()
     if (!body) return
 
+    // Deduplicate events (Matrix sync replays)
+    if (this.isDuplicateEvent(event.event_id || `${roomId}:${Date.now()}`)) return
+
     this.log(`[MSG] ${message.sender}: ${body}`)
 
     // Check if this is a DM (direct message) room
@@ -315,6 +319,13 @@ class MatrixConnector extends BaseConnector<RoomSession> {
 
   private async processQuery(roomId: string, sender: string, query: string): Promise<void> {
     const startTime = Date.now()
+
+    // Guard against concurrent queries on the same session
+    if (this.isQueryActive(roomId)) {
+      await this.sendMessage(roomId, "A request is already running. Please wait for it to finish.")
+      return
+    }
+    this.markQueryActive(roomId)
 
     // Get or create session
     const session = await this.getOrCreateSession(roomId, (client) =>
@@ -493,6 +504,7 @@ class MatrixConnector extends BaseConnector<RoomSession> {
       client.off("update", updateHandler)
       client.off("image", imageHandler)
       client.off("permission_rejected", permissionHandler)
+      this.markQueryDone(roomId)
     }
   }
 

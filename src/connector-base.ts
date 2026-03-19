@@ -1,10 +1,12 @@
 /**
  * Base classes and utilities for chat connectors
  * 
- * Provides standardized session management, rate limiting, and command handling
+ * Provides standardized session management, rate limiting, event deduplication,
+ * active query guarding, session expiry, and command handling
  * that all connectors inherit from.
  */
 
+import fs from "fs"
 import { ACPClient, type OpenCodeCommand } from "./acp-client"
 import { 
   getSessionDir, 
@@ -51,7 +53,8 @@ export interface ConnectorConfig {
   trigger: string             // "!oc"
   botName: string             // "OpenCode Bot"
   rateLimitSeconds: number    // 5
-  sessionRetentionDays: number // 7
+  sessionRetentionDays: number // 7 (startup cleanup)
+  sessionRetentionMins?: number // 30 (runtime expiry, optional)
 }
 
 // =============================================================================
@@ -84,6 +87,62 @@ export class RateLimiter {
    */
   clear(): void {
     this.lastMessages.clear()
+  }
+}
+
+// =============================================================================
+// EventDeduplicator
+// =============================================================================
+
+/**
+ * Prevents duplicate event processing across all connectors.
+ * Every chat platform can deliver duplicate events (Slack retries,
+ * Matrix sync replays, Discord re-deliveries, Mattermost WebSocket replays).
+ * 
+ * Tracks recently seen event IDs with timestamps and auto-evicts
+ * entries older than maxAgeMs (default 5 minutes).
+ */
+export class EventDeduplicator {
+  private seen = new Map<string, number>()
+  private maxAgeMs: number
+  
+  constructor(maxAgeMs: number = 5 * 60 * 1000) {
+    this.maxAgeMs = maxAgeMs
+  }
+  
+  /**
+   * Check if an event ID has been seen recently.
+   * @returns true if duplicate (already seen), false if new
+   */
+  isDuplicate(eventId: string): boolean {
+    this.evictStale()
+    if (this.seen.has(eventId)) return true
+    this.seen.set(eventId, Date.now())
+    return false
+  }
+  
+  /**
+   * Remove entries older than maxAgeMs
+   */
+  private evictStale(): void {
+    const cutoff = Date.now() - this.maxAgeMs
+    for (const [id, ts] of this.seen) {
+      if (ts < cutoff) this.seen.delete(id)
+    }
+  }
+  
+  /**
+   * Number of tracked events (for testing)
+   */
+  get size(): number {
+    return this.seen.size
+  }
+  
+  /**
+   * Clear all tracking
+   */
+  clear(): void {
+    this.seen.clear()
   }
 }
 
@@ -232,12 +291,29 @@ export class CommandHandler {
 // BaseConnector
 // =============================================================================
 
+/** Default session expiry sweep interval: 60 seconds */
+const EXPIRY_SWEEP_INTERVAL_MS = 60_000
+
+/**
+ * Parse SESSION_RETENTION_MINS from environment.
+ * Returns undefined if not set or invalid (connector uses no runtime expiry).
+ */
+function parseSessionRetentionMins(env: NodeJS.ProcessEnv): number | undefined {
+  const raw = env.SESSION_RETENTION_MINS
+  if (!raw) return undefined
+  const mins = parseInt(raw, 10)
+  if (Number.isFinite(mins) && mins > 0) return mins
+  return undefined
+}
+
 /**
  * Abstract base class for all chat connectors
  * 
  * Provides:
- * - Session management (create, track, cleanup)
+ * - Session management (create, track, cleanup, runtime expiry)
  * - Rate limiting
+ * - Event deduplication
+ * - Active query guarding
  * - Command handling (/status, /clear, /help)
  * - Standardized logging
  * 
@@ -250,11 +326,21 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   protected sessionManager: SessionManager<TSession>
   protected rateLimiter: RateLimiter
   protected config: ConnectorConfig
+  private eventDeduplicator: EventDeduplicator
+  /** Session IDs with an in-flight query -- never evict these */
+  protected activeQueries = new Set<string>()
+  private expiryInterval: NodeJS.Timeout | null = null
   
   constructor(config: ConnectorConfig) {
     this.sessionManager = new SessionManager<TSession>()
     this.rateLimiter = new RateLimiter()
     this.config = config
+    this.eventDeduplicator = new EventDeduplicator()
+    
+    // Apply SESSION_RETENTION_MINS from env if not set in config
+    if (this.config.sessionRetentionMins === undefined) {
+      this.config.sessionRetentionMins = parseSessionRetentionMins(process.env)
+    }
   }
   
   /**
@@ -294,6 +380,54 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     console.log(`  Bot name: ${this.config.botName}`)
     console.log(`  Session storage: ${storageInfo.baseDir}`)
     console.log(`    (${storageInfo.source})`)
+    if (this.config.sessionRetentionMins) {
+      console.log(`  Session expiry: ${this.config.sessionRetentionMins} min (inactivity)`)
+    }
+  }
+  
+  // ---------------------------------------------------------------------------
+  // Event Deduplication
+  // ---------------------------------------------------------------------------
+  
+  /**
+   * Check if an event has already been processed.
+   * Call this before processing any incoming event.
+   * The eventId format is platform-specific (e.g., Slack: "channel:ts").
+   * @returns true if this event was already seen (skip it), false if new
+   */
+  protected isDuplicateEvent(eventId: string): boolean {
+    const isDup = this.eventDeduplicator.isDuplicate(eventId)
+    if (isDup) {
+      this.log(`[DEDUP] Skipping duplicate event: ${eventId}`)
+    }
+    return isDup
+  }
+  
+  // ---------------------------------------------------------------------------
+  // Active Query Guard
+  // ---------------------------------------------------------------------------
+  
+  /**
+   * Check if a session has an in-flight query.
+   */
+  protected isQueryActive(sessionId: string): boolean {
+    return this.activeQueries.has(sessionId)
+  }
+  
+  /**
+   * Mark a session as having an active query.
+   * Call before starting prompt processing.
+   */
+  protected markQueryActive(sessionId: string): void {
+    this.activeQueries.add(sessionId)
+  }
+  
+  /**
+   * Mark a session query as complete.
+   * Call in the finally block after prompt processing.
+   */
+  protected markQueryDone(sessionId: string): void {
+    this.activeQueries.delete(sessionId)
   }
   
   // ---------------------------------------------------------------------------
@@ -350,7 +484,8 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   }
   
   /**
-   * Cleanup old session directories on startup
+   * Cleanup old session directories on startup (days-based).
+   * For runtime expiry (minutes-based), use startSessionExpiryLoop().
    */
   protected async cleanupSessions(): Promise<void> {
     this.log("Cleaning up old sessions...")
@@ -369,6 +504,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
    * Disconnect all sessions on shutdown
    */
   protected async disconnectAllSessions(): Promise<void> {
+    this.stopSessionExpiryLoop()
     for (const [id, session] of this.sessionManager.sessions) {
       try {
         await session.client.disconnect()
@@ -378,6 +514,82 @@ export abstract class BaseConnector<TSession extends BaseSession> {
       }
     }
     this.sessionManager.clear()
+    this.activeQueries.clear()
+  }
+  
+  // ---------------------------------------------------------------------------
+  // Session Expiry - Runtime background sweep
+  // ---------------------------------------------------------------------------
+  
+  /**
+   * Start the background session expiry loop.
+   * Call this from start() after the connector is ready.
+   * Only runs if sessionRetentionMins is configured.
+   */
+  protected startSessionExpiryLoop(): void {
+    if (this.expiryInterval) return
+    if (!this.config.sessionRetentionMins) return
+    
+    this.expiryInterval = setInterval(() => {
+      this.expireStaleSessions().catch((err) => {
+        this.logError("[SESSION_EXPIRY] Sweep failed:", err)
+      })
+    }, EXPIRY_SWEEP_INTERVAL_MS)
+  }
+  
+  /**
+   * Stop the background session expiry loop.
+   * Called automatically by disconnectAllSessions().
+   */
+  protected stopSessionExpiryLoop(): void {
+    if (this.expiryInterval) {
+      clearInterval(this.expiryInterval)
+      this.expiryInterval = null
+    }
+  }
+  
+  /**
+   * Expire sessions that have been inactive longer than sessionRetentionMins.
+   * Sessions with active in-flight queries are never evicted.
+   */
+  private async expireStaleSessions(): Promise<void> {
+    const retentionMins = this.config.sessionRetentionMins
+    if (!retentionMins) return
+    
+    const now = Date.now()
+    const staleIds: string[] = []
+    
+    for (const [id, session] of this.sessionManager.sessions) {
+      if (this.activeQueries.has(id)) continue
+      const inactiveMins = (now - session.lastActivity.getTime()) / 60_000
+      if (inactiveMins >= retentionMins) staleIds.push(id)
+    }
+    
+    for (const id of staleIds) {
+      const session = this.sessionManager.get(id)
+      if (session) {
+        try {
+          await session.client.disconnect()
+        } catch {}
+      }
+      this.sessionManager.delete(id)
+      this.deleteSessionCacheDir(id)
+      this.log(`[SESSION_EXPIRY] ${id} expired after ${retentionMins}m inactivity`)
+    }
+  }
+  
+  /**
+   * Delete the on-disk session cache directory for an expired session.
+   */
+  private deleteSessionCacheDir(id: string): void {
+    const dir = getSessionDir(this.config.connector, id)
+    try {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    } catch (err) {
+      this.logError(`[SESSION_EXPIRY] Failed to clean cache for ${id}:`, err)
+    }
   }
   
   // ---------------------------------------------------------------------------

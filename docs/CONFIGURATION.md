@@ -608,8 +608,8 @@ SESSION_BASE_DIR=/path/to/sessions
 ```
 ~/.cache/opencode-chat-bridge/sessions/
   slack/
-    C0ABC123/     # Slack channel session
-    C0XYZ789/     # Another channel session
+    C0ABC123_1710000000_111/  # Slack thread session (channel:threadTs)
+    C0ABC123_1710000000_222/  # Another thread in same channel
   matrix/
     _room1_server.org/  # Matrix room session (special chars sanitized)
   mattermost/
@@ -620,14 +620,25 @@ SESSION_BASE_DIR=/path/to/sessions
 
 ### Session Cleanup
 
-Old sessions are automatically cleaned up when connectors start:
+Sessions are cleaned up in two ways:
+
+**1. Startup cleanup (days-based):**
+Old on-disk session directories are deleted when a connector starts.
 
 ```bash
 # .env
 SESSION_RETENTION_DAYS=7  # Default: 7 days
 ```
 
-Sessions older than this are deleted on connector startup. This prevents disk space from growing unbounded.
+**2. Runtime expiry (minutes-based):**
+A background sweep expires inactive in-memory sessions and removes their on-disk cache.
+
+```bash
+# .env
+SESSION_RETENTION_MINS=30  # Default: 30 for Slack, unset for others
+```
+
+Sessions with active in-flight queries are never evicted. Both mechanisms coexist -- startup cleanup handles long-dead sessions, runtime expiry handles sessions that go stale while the bot is running.
 
 ### Session Commands
 
@@ -655,10 +666,13 @@ Users can manage their sessions via chat:
 
 ### Session Continuity
 
-Each channel/room/chat maintains one persistent session. Users can reference previous conversations as long as:
+Each conversation thread maintains its own session. Users can reference previous messages as long as:
 1. The session hasn't been manually cleared (`/clear`)
-2. The session is less than `SESSION_RETENTION_DAYS` old
-3. The connector hasn't been restarted (in-memory sessions are lost on restart)
+2. The session hasn't expired due to `SESSION_RETENTION_MINS` inactivity
+3. The session is less than `SESSION_RETENTION_DAYS` old (on-disk cleanup at startup)
+4. The connector hasn't been restarted (in-memory sessions are lost on restart)
+
+For Slack specifically, sessions are per-thread. Other connectors use per-channel/room sessions.
 
 ### Debugging Sessions
 
