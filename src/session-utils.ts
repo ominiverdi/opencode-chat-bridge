@@ -291,6 +291,8 @@ export function removeImageMarkers(text: string): string {
  * @returns Text with absolute paths replaced by filenames
  */
 export function sanitizeServerPaths(text: string): string {
+  // Skip if message contains URLs (http/https) to avoid mangling them
+  if (/https?:\/\//i.test(text)) return text;
   // Match absolute paths: /path/to/filename.ext
   // Captures paths starting with / followed by path segments and a filename with extension
   return text.replace(
