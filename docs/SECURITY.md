@@ -207,6 +207,51 @@ MCP tools follow the naming pattern `<server>_<tool>`:
 
 Be careful with which MCP servers you allow. Each server may expose multiple tools.
 
+## Web Connector Security
+
+The web connector is fundamentally different from the other connectors. Matrix, Slack, Discord, and Mattermost authenticate users through their own platform -- the bridge trusts the platform to verify identity. The web widget has **no built-in user authentication**.
+
+### Who can use the widget?
+
+Anyone who can reach the server and load the widget can send messages. There is no login, no token, no user identity. This means:
+
+- **Every visitor consumes AI credits** (API calls to the model provider)
+- **There is no per-user accountability** -- you cannot trace messages to a real person
+- **Client-side API keys would not help** -- any key shipped in JavaScript is visible in browser DevTools
+
+### Recommended deployment
+
+| Scenario | Safe? | Notes |
+|----------|-------|-------|
+| Private network / intranet | Yes | Network access IS the authentication. Only people on your network can reach the server. |
+| VPN-only access | Yes | Same -- the VPN controls who can connect. |
+| Behind reverse proxy with auth | Yes | Use nginx/Caddy with OAuth, SSO, or basic auth in front of the web connector. |
+| Public internet, unrestricted | **No** | Anyone can find and use it. You pay for their AI usage. |
+| Public internet, origin-restricted | Partial | `WEB_ALLOWED_ORIGINS` prevents other websites from embedding your widget, but does not stop direct WebSocket connections from scripts or curl. |
+
+### What protects you
+
+1. **Network access** -- the strongest control. If the server is not reachable, it cannot be abused.
+2. **`WEB_ALLOWED_ORIGINS`** -- browsers enforce the Origin header on WebSocket connections. Another website cannot embed your widget unless you allow their origin. This does NOT stop non-browser clients.
+3. **Rate limiting** -- built into the connector. Limits how fast any single client can send messages.
+4. **OpenCode permissions** -- the safety net. Even with full widget access, dangerous tools (bash, file read/write, etc.) are denied at the execution level. A malicious user can waste AI credits but cannot compromise the server.
+
+### What does NOT protect you
+
+- **Client-side API keys** -- visible in page source and DevTools. We deliberately do not implement this because it creates a false sense of security.
+- **`WEB_ALLOWED_ORIGINS` alone** -- only enforced by browsers. A script or API client can set any Origin header.
+- **Prompt-based restrictions** -- the AI model can be tricked via prompt injection. Tool permissions (above) are the real defense.
+
+### Exposing publicly
+
+If you need to expose the widget on a public website, put a reverse proxy with authentication in front of the web connector:
+
+```
+[Browser] --> [nginx + OAuth2 Proxy] --> [web connector :3420]
+```
+
+The proxy handles login. The web connector serves the widget. Users must authenticate before they can reach the chat. This keeps the connector simple and moves auth to a dedicated layer where it belongs.
+
 ## Chat-Level Security
 
 ### User Filtering
