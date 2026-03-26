@@ -2,7 +2,9 @@
   "botName": "oc",
   "trigger": "!oc",
   "rateLimitSeconds": 5,
-  "streamTools": ["bash"],
+  "streamTools": [
+    "bash"
+  ],
   "sessionStorePath": "./.opencode/chat-sessions.json",
   "defaultAgent": null,
   "modes": {
@@ -34,5 +36,14 @@
     "enabled": true,
     "authFolder": "./.whatsapp-auth",
     "allowedNumbers": []
+  },
+  "web": {
+    "enabled": true,
+    "port": 3420,
+    "host": "0.0.0.0",
+    "allowedOrigins": [
+      "*"
+    ],
+    "publicUrl": ""
   }
 }

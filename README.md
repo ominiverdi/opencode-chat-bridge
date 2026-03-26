@@ -4,7 +4,7 @@ Bridge [OpenCode](https://opencode.ai) to chat platforms with permission-based s
 
 ## Table of Contents
 
-- [Connectors](#connectors) -- Matrix, Slack, WhatsApp, Mattermost, Discord
+- [Connectors](#connectors) -- Matrix, Slack, WhatsApp, Mattermost, Discord, Web
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [Permissions](#permissions)
@@ -46,6 +46,14 @@ Uses the Mattermost REST API v4 and WebSocket for real-time events. Zero externa
 
 Uses discord.js for real-time messaging. Supports @mentions and DMs.
 
+### Web
+
+<img src="images/web_widget.png" width="400" alt="Web widget connector" />
+
+Embeddable chat widget for any webpage. Two modes: **widget** (floating bubble + popup panel) and **embedded** (fills a container div). Zero external dependencies -- served as a single `<script>` tag. Real-time streaming via WebSocket.
+
+> **Note:** The web widget has no built-in user authentication. It is designed for private networks, VPNs, or behind a reverse proxy with auth. See [Security](docs/SECURITY.md#web-connector-security) for details.
+
 ## Quick Start
 
 ```bash
@@ -63,9 +71,10 @@ bun connectors/slack.ts
 bun connectors/whatsapp.ts
 bun connectors/mattermost.ts
 bun connectors/discord.ts
+bun connectors/web.ts
 ```
 
-See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md)
+See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md) | [Web](docs/WEB_SETUP.md)
 
 ## Docker
 
@@ -211,6 +220,8 @@ opencode-chat-bridge/
     matrix.ts
     slack.ts
     whatsapp.ts
+    web.ts
+    web-widget.js      # Embeddable client-side widget
   src/
     acp-client.ts       # ACP protocol client
     cli.ts              # Interactive CLI
@@ -250,7 +261,7 @@ Setup guides:
 - [Slack](docs/SLACK_SETUP.md)
 - [Mattermost](docs/MATTERMOST_SETUP.md)
 - [WhatsApp](docs/WHATSAPP_SETUP.md)
-- [Discord](docs/DISCORD_SETUP.md)
+- [Discord](docs/DISCORD_SETUP.md) | [Web](docs/WEB_SETUP.md)
 
 Reference:
 - [Configuration](docs/CONFIGURATION.md)
