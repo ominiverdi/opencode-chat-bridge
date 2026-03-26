@@ -48,6 +48,14 @@ export interface SlackConfig {
   threadIsolation: boolean  // true: per-thread sessions + thread replies, false: per-channel
 }
 
+
+export interface WebConfig {
+  enabled: boolean
+  port: number
+  host: string
+  allowedOrigins: string[]  // CORS origins, ["*"] = any
+  publicUrl: string         // Override for logs/snippets (e.g. behind reverse proxy)
+}
 export interface ChatBridgeConfig {
   botName: string
   trigger: string
@@ -60,6 +68,7 @@ export interface ChatBridgeConfig {
   mattermost: MattermostConfig
   whatsapp: WhatsAppConfig
   slack: SlackConfig
+  web: WebConfig
 }
 
 // Default configuration
@@ -107,6 +116,13 @@ const defaultConfig: ChatBridgeConfig = {
   slack: {
     enabled: false,
     threadIsolation: true,  // Per-thread sessions by default
+  },
+  web: {
+    enabled: false,
+    port: 3420,
+    host: "0.0.0.0",
+    allowedOrigins: ["*"],
+    publicUrl: "",
   }
 }
 
