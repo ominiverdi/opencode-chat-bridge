@@ -18,7 +18,8 @@
     "slack": "bun connectors/slack.ts",
     "whatsapp": "bun connectors/whatsapp.ts",
     "mattermost": "bun connectors/mattermost.ts",
-    "cli": "bun src/cli.ts"
+    "cli": "bun src/cli.ts",
+    "web": "bun connectors/web.ts"
   },
   "keywords": [
     "opencode",
@@ -38,6 +39,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.13.1",
+    "@matrix-org/matrix-sdk-crypto-nodejs": "^0.4.0",
     "@slack/bolt": "^4.1.0",
     "baileys": "^7.0.0-rc.9",
     "discord.js": "^14.25.1",

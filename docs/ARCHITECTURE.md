@@ -280,6 +280,7 @@ varies by platform:
 | Discord | `channelId` | Per-channel |
 | Mattermost | `channelId:rootId` | Per-thread |
 | WhatsApp | `chatId` | Per-chat |
+| Web | `clientId` (browser localStorage) | Per-browser |
 
 `BaseConnector.getOrCreateSession()` handles creating the ACPClient, connecting,
 and session setup. `SessionManager` tracks all active sessions.

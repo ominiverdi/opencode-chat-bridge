@@ -518,6 +518,7 @@ The trigger prefix can be set globally in `chat-bridge.json` or overridden per c
 | `MATRIX_TRIGGER` | Matrix | `chat-bridge.json` trigger |
 | `MATTERMOST_TRIGGER` | Mattermost | `chat-bridge.json` trigger |
 | `WHATSAPP_TRIGGER` | WhatsApp | `chat-bridge.json` trigger |
+| `WEB_TRIGGER` | Web | `chat-bridge.json` trigger |
 
 This lets you run multiple connectors with different triggers from the same config.
 
