@@ -166,7 +166,7 @@
       ".oc-msg--bot{align-self:flex-start;background:" + CFG.botBg + ";color:" + CFG.botText + ";border-bottom-left-radius:4px;}",
 
       // --- Activity ---
-      ".oc-activity{align-self:flex-start;font-size:12px;color:#64748b;padding:2px 0;font-style:italic;}",
+      ".oc-activity{align-self:flex-start;font-size:12px;color:#6b7280;background:#f3f4f6;padding:6px 10px;border-left:3px solid #9ca3af;border-radius:4px;font-family:monospace;margin:4px 0;}",
       ".oc-tool-out{align-self:stretch;background:#1e293b;color:#e2e8f0;padding:10px 12px;border-radius:8px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:4px 0;}",
       ".oc-tool-details{align-self:stretch;margin:4px 0;}",
       ".oc-tool-details summary{font-size:12px;color:#64748b;cursor:pointer;padding:4px 0;user-select:none;}",
@@ -450,39 +450,16 @@
   }
 
   function showActivity(text) {
-    // Reuse existing activity element or create one
-    var el = msgsEl.querySelector(".oc-activity")
-    if (!el) {
-      el = document.createElement("div")
-      el.className = "oc-activity"
-      msgsEl.insertBefore(el, thinkingEl)
-    }
+    // Create a new activity element each time (persists like other bridges)
+    var el = document.createElement("div")
+    el.className = "oc-activity"
     el.textContent = "> " + text
+    msgsEl.insertBefore(el, thinkingEl)
     scrollDown()
   }
 
   function clearActivity() {
-    // Remove activity text lines
-    var acts = msgsEl.querySelectorAll(".oc-activity")
-    for (var i = 0; i < acts.length; i++) acts[i].remove()
-
-    // Collapse tool output blocks into <details> toggles (in place)
-    var outs = msgsEl.querySelectorAll(".oc-tool-out")
-    for (var j = 0; j < outs.length; j++) {
-      var pre = outs[j]
-      var text = pre.textContent || ""
-      if (!text.trim()) { pre.remove(); continue }
-      var lines = text.split("\n").length
-      var details = document.createElement("details")
-      details.className = "oc-tool-details"
-      var summary = document.createElement("summary")
-      summary.textContent = "tool output (" + lines + " line" + (lines !== 1 ? "s" : "") + ")"
-      details.appendChild(summary)
-      pre.classList.add("oc-tool-out--collapsed")
-      // Wrap in place: put details where pre is, then move pre inside
-      pre.replaceWith(details)
-      details.appendChild(pre)
-    }
+    // Activities and tool output persist - nothing to clear
   }
 
   function appendToolOutput(text) {

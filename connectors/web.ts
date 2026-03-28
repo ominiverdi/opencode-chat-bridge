@@ -434,8 +434,14 @@ class WebConnector extends BaseConnector<WebSession> {
     client.on("update", onUpdate)
     client.on("permission_rejected", onPermission)
 
+    // Timeout to prevent stuck requests (5 minutes)
+    const QUERY_TIMEOUT_MS = 5 * 60 * 1000
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out")), QUERY_TIMEOUT_MS)
+    )
+
     try {
-      await client.prompt(query)
+      await Promise.race([client.prompt(query), timeoutPromise])
 
       // Scan all text for image/doc file paths
       const allText = buf + "\n" + toolResultsBuf
