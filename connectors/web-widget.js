@@ -199,7 +199,7 @@
 
       // --- Mobile ---
       "@media(max-width:480px){" +
-        ".oc-panel--widget{width:calc(100vw - 24px);height:calc(100vh - 100px);bottom:70px;" + CFG.position + ":0;left:12px;right:12px;border-radius:12px;}" +
+        ".oc-panel--widget{position:fixed;bottom:80px;left:12px;right:12px;width:auto;height:calc(100vh - 100px);border-radius:12px;}" +
       "}",
     ].join("\n")
     document.head.appendChild(s)
