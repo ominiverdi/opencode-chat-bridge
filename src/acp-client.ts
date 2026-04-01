@@ -299,18 +299,19 @@ export class ACPClient extends EventEmitter {
     const update = params.update
     
     // Handle new ACP protocol format: {part: {type: "text", text: "..."}}
-    // OpenCode now sends part updates without sessionUpdate field
-    if (update.part?.type === "text") {
-      this.emit("update", { type: "text", content: update.part.text })
-      this.emit("chunk", update.part.text)
+    // OpenCode sends part updates directly in params (not nested in .update)
+    const part = params.part || update?.part
+    if (part?.type === "text") {
+      this.emit("update", { type: "text", content: part.text })
+      this.emit("chunk", part.text)
       return
     }
-    if (update.part?.type === "image") {
+    if (part?.type === "image") {
       this.emit("image", {
         type: "image",
-        mimeType: update.part.mimeType || "image/png",
-        data: update.part.data,
-        alt: update.part.alt,
+        mimeType: part.mimeType || "image/png",
+        data: part.data,
+        alt: part.alt,
       })
       return
     }
