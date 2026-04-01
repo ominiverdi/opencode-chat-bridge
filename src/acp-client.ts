@@ -304,6 +304,7 @@ export class ACPClient extends EventEmitter {
     if (part?.type === "text") {
       this.emit("update", { type: "text", content: part.text })
       this.emit("chunk", part.text)
+      console.error(`[ACP] TEXT chunk emitted: "${part.text?.substring(0, 50)}..."`)
       return
     }
     if (part?.type === "image") {
