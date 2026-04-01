@@ -298,16 +298,13 @@ export class ACPClient extends EventEmitter {
   private handleSessionUpdate(params: any): void {
     const update = params.update
     
-    // Debug: log the full structure
-    console.error(`[ACP] handleSessionUpdate params.keys=${Object.keys(params).join(',')}`)
-    
     // Handle new ACP protocol format: {part: {type: "text", text: "..."}}
     // OpenCode sends part updates directly in params (not nested in .update)
     const part = params.part || update?.part
     if (part?.type === "text") {
-      console.error(`[ACP] TEXT found: "${part.text?.substring(0, 50)}..."`)
       this.emit("update", { type: "text", content: part.text })
       this.emit("chunk", part.text)
+      console.error(`[ACP] TEXT chunk emitted: "${part.text?.substring(0, 50)}..."`)
       return
     }
     if (part?.type === "image") {
