@@ -450,8 +450,12 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     const chunkHandler = (text: string) => { responseBuffer += text }
     const updateHandler = (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
-        toolResultsBuffer += JSON.stringify(update.toolResult)
+        toolResultsBuffer += update.toolResult
       }
+    }
+    const permissionHandler = async (event: { permission: string; path: string | null; message: string }) => {
+      this.log(`[PERMISSION] Rejected: ${event.permission}${event.path ? ` (${event.path})` : ""}`)
+      await this.sendReply(slackClient, context, `> ${event.message}`)
     }
 
     try {
@@ -472,6 +476,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       client.on("activity", activityHandler)
       client.on("chunk", chunkHandler)
       client.on("update", updateHandler)
+      client.on("permission_rejected", permissionHandler)
 
       await client.prompt(query)
 
@@ -512,6 +517,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       client?.off("activity", activityHandler)
       client?.off("chunk", chunkHandler)
       client?.off("update", updateHandler)
+      client?.off("permission_rejected", permissionHandler)
       // Reset inactivity clock from moment of delivery
       if (session) session.lastActivity = new Date()
       this.markQueryDone(sessionId)
