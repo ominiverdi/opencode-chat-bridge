@@ -533,15 +533,11 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
         }
       }
 
+      // Send final response (never deduplicate against tool outputs)
       const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
       if (cleanResponse) {
-        const responsePreview = cleanResponse.slice(0, 100)
-        const alreadySent = sentToolOutputs.has(responsePreview)
-
-        if (!alreadySent) {
-          session.outputChars += cleanResponse.length
-          await this.sendReply(context, cleanResponse)
-        }
+        session.outputChars += cleanResponse.length
+        await this.sendReply(context, cleanResponse)
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)

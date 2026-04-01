@@ -121,12 +121,38 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     if (!this.sock) return
 
     try {
-      // Prefix with bot name so user knows who's writing
-      const prefixedText = `${BOT_NAME}: ${text}`
-      await this.sock.sendMessage(chatId, { text: prefixedText })
+      const MAX_LEN = 4000 // Conservative limit for WhatsApp messages
+      const prefixed = `${BOT_NAME}: ${text}`
+
+      if (prefixed.length <= MAX_LEN) {
+        await this.sock.sendMessage(chatId, { text: prefixed })
+      } else {
+        // Split long messages — first chunk gets the bot name prefix
+        const chunks = this.splitMessage(text, MAX_LEN - BOT_NAME.length - 2)
+        for (let i = 0; i < chunks.length; i++) {
+          const msg = i === 0 ? `${BOT_NAME}: ${chunks[i]}` : chunks[i]
+          await this.sock.sendMessage(chatId, { text: msg })
+        }
+      }
     } catch (err) {
       this.logError(`Failed to send message to ${chatId}:`, err)
     }
+  }
+
+  private splitMessage(text: string, maxLen: number): string[] {
+    const chunks: string[] = []
+    let remaining = text
+    while (remaining.length > 0) {
+      if (remaining.length <= maxLen) {
+        chunks.push(remaining)
+        break
+      }
+      let splitAt = remaining.lastIndexOf("\n", maxLen)
+      if (splitAt <= 0) splitAt = maxLen
+      chunks.push(remaining.slice(0, splitAt))
+      remaining = remaining.slice(splitAt).trimStart()
+    }
+    return chunks
   }
 
   // ---------------------------------------------------------------------------
@@ -320,11 +346,18 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       await this.sendImageFromBase64(chatId, image)
     }
 
+    // Handle permission rejections
+    const permissionHandler = async (event: { permission: string; path: string | null; message: string }) => {
+      this.log(`[PERMISSION] Rejected: ${event.permission}${event.path ? ` (${event.path})` : ""}`)
+      await this.sendMessage(chatId, `> ${event.message}`)
+    }
+
     // Set up listeners
     client.on("activity", activityHandler)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
     client.on("image", imageHandler)
+    client.on("permission_rejected", permissionHandler)
 
     try {
       await client.prompt(query)
@@ -391,6 +424,8 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)
+      client.off("permission_rejected", permissionHandler)
+      if (session) session.lastActivity = new Date()
       this.markQueryDone(chatId)
     }
   }

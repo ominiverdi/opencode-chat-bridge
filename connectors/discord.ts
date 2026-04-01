@@ -30,15 +30,18 @@ import {
   removeImageMarkers,
   sanitizeServerPaths,
 } from "../src"
+import { getConfig } from "../src/config"
 
 // =============================================================================
 // Configuration
 // =============================================================================
 
+const config = getConfig()
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN
 const TRIGGER = process.env.DISCORD_TRIGGER || config.trigger
+const BOT_NAME = config.botName
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
-const RATE_LIMIT_SECONDS = 5
+const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 
 // =============================================================================
 // Session Type
@@ -59,7 +62,7 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     super({
       connector: "discord",
       trigger: TRIGGER,
-      botName: "OpenCode Discord Bot",
+      botName: BOT_NAME,
       rateLimitSeconds: RATE_LIMIT_SECONDS,
       sessionRetentionDays: SESSION_RETENTION_DAYS,
     })
@@ -241,14 +244,21 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     // Collect tool results (may contain images)
     const updateHandler = (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
-        toolResultsBuffer += JSON.stringify(update.toolResult)
+        toolResultsBuffer += update.toolResult
       }
+    }
+
+    // Handle permission rejections
+    const permissionHandler = async (event: { permission: string; path: string | null; message: string }) => {
+      this.log(`[PERMISSION] Rejected: ${event.permission}${event.path ? ` (${event.path})` : ""}`)
+      await channel.send(`> ${event.message}`)
     }
 
     // Set up listeners
     client.on("activity", activityHandler)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
+    client.on("permission_rejected", permissionHandler)
 
     try {
       // Show typing indicator
@@ -299,6 +309,8 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
+      client.off("permission_rejected", permissionHandler)
+      if (session) session.lastActivity = new Date()
       this.markQueryDone(channelId)
     }
   }
