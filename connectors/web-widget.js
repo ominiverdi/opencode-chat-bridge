@@ -598,9 +598,14 @@
       case "done":
         hideThinking()
         clearActivity()
-        if (curBotEl && curBotEl.textContent) {
-          messages.push({ role: "bot", text: curBotEl.textContent, ts: Date.now() })
-          saveState()
+        if (curBotEl) {
+          // Move bot text bubble to the bottom (after activities) so it's visible
+          msgsEl.insertBefore(curBotEl, thinkingEl)
+          scrollDown()
+          if (curBotEl.textContent) {
+            messages.push({ role: "bot", text: curBotEl.textContent, ts: Date.now() })
+            saveState()
+          }
         }
         curBotEl = null
         isProcessing = false
