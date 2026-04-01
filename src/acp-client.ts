@@ -4,9 +4,18 @@
 
 import { spawn, type ChildProcess } from "child_process"
 import { EventEmitter } from "events"
-import { existsSync } from "fs"
+import { existsSync, appendFileSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
+
+// Debug trace — writes to logs/bridge-debug.log when BRIDGE_DEBUG=1
+const BRIDGE_DEBUG = process.env.BRIDGE_DEBUG === "1"
+const BRIDGE_DEBUG_LOG = join(process.cwd(), "logs", "bridge-debug.log")
+function dbg(msg: string): void {
+  if (!BRIDGE_DEBUG) return
+  const ts = new Date().toISOString()
+  appendFileSync(BRIDGE_DEBUG_LOG, `[${ts}] ${msg}\n`)
+}
 
 // Find the opencode executable
 function findOpencode(): string {
@@ -167,6 +176,8 @@ export class ACPClient extends EventEmitter {
       await this.createSession()
     }
     
+    dbg(`PROMPT_START sessionId=${this.sessionId}`)
+    
     let responseText = ""
     let currentThought = ""
     
@@ -174,12 +185,14 @@ export class ACPClient extends EventEmitter {
     const updateHandler = (update: SessionUpdate) => {
       if (update.type === "text") {
         responseText += update.content || ""
+        dbg(`PROMPT_HANDLER text="${(update.content || "").slice(0, 40)}" total=${responseText.length}`)
       } else if (update.type === "thought") {
         currentThought += update.content || ""
       }
     }
     
     this.on("update", updateHandler)
+    dbg(`PROMPT_HANDLER_REGISTERED`)
     
     const params: any = {
       sessionId: this.sessionId,
@@ -191,8 +204,10 @@ export class ACPClient extends EventEmitter {
     }
     
     await this.send("session/prompt", params)
+    dbg(`PROMPT_SEND_DONE`)
     
     this.off("update", updateHandler)
+    dbg(`PROMPT_HANDLER_UNREGISTERED total=${responseText.length}`)
     
     return responseText
   }
@@ -215,6 +230,7 @@ export class ACPClient extends EventEmitter {
   }
   
   private handleData(data: Buffer): void {
+    dbg(`RAW_DATA len=${data.length}`)
     this.buffer += data.toString()
     const lines = this.buffer.split("\n")
     this.buffer = lines.pop() || ""
@@ -224,12 +240,14 @@ export class ACPClient extends EventEmitter {
       try {
         const msg = JSON.parse(line)
         this.handleMessage(msg)
-      } catch {}
+      } catch (e) {
+        dbg(`PARSE_ERROR: ${line.slice(0, 100)}`)
+      }
     }
   }
   
   private handleMessage(msg: any): void {
-
+    dbg(`HANDLE_MSG id=${msg.id} method=${msg.method}`)
     
     // Handle notifications
     if (msg.method === "session/update") {
@@ -245,6 +263,7 @@ export class ACPClient extends EventEmitter {
     
     // Handle responses
     if (msg.id && this.pending.has(msg.id)) {
+      dbg(`RESOLVE_PENDING id=${msg.id}`)
       const resolve = this.pending.get(msg.id)!
       this.pending.delete(msg.id)
       resolve(msg)
@@ -298,13 +317,15 @@ export class ACPClient extends EventEmitter {
   private handleSessionUpdate(params: any): void {
     const update = params.update
     
+    dbg(`SESSION_UPDATE sessionUpdate=${update?.sessionUpdate} hasPart=${!!params?.part || !!update?.part}`)
+    
     // Handle new ACP protocol format: {part: {type: "text", text: "..."}}
     // OpenCode sends part updates directly in params (not nested in .update)
     const part = params.part || update?.part
     if (part?.type === "text") {
+      dbg(`PART_TEXT text="${part.text?.substring(0, 40)}"`)
       this.emit("update", { type: "text", content: part.text })
       this.emit("chunk", part.text)
-      console.error(`[ACP] TEXT chunk emitted: "${part.text?.substring(0, 50)}..."`)
       return
     }
     if (part?.type === "image") {
@@ -320,6 +341,7 @@ export class ACPClient extends EventEmitter {
     switch (update.sessionUpdate) {
       case "agent_message_chunk":
         if (update.content?.type === "text") {
+          dbg(`AGENT_MSG_CHUNK text="${update.content.text?.substring(0, 40)}"`)
           this.emit("update", { type: "text", content: update.content.text })
           this.emit("chunk", update.content.text)
         }
