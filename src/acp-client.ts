@@ -298,7 +298,22 @@ export class ACPClient extends EventEmitter {
   private handleSessionUpdate(params: any): void {
     const update = params.update
     
-
+    // Handle new ACP protocol format: {part: {type: "text", text: "..."}}
+    // OpenCode now sends part updates without sessionUpdate field
+    if (update.part?.type === "text") {
+      this.emit("update", { type: "text", content: update.part.text })
+      this.emit("chunk", update.part.text)
+      return
+    }
+    if (update.part?.type === "image") {
+      this.emit("image", {
+        type: "image",
+        mimeType: update.part.mimeType || "image/png",
+        data: update.part.data,
+        alt: update.part.alt,
+      })
+      return
+    }
     
     switch (update.sessionUpdate) {
       case "agent_message_chunk":
