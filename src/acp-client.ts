@@ -94,6 +94,8 @@ export class ACPClient extends EventEmitter {
   private _availableCommands: OpenCodeCommand[] = []
   // Track cumulative output per tool call to compute actual deltas
   private toolOutputSeen = new Map<string, number>()
+  // Track tool calls we already emitted activity for (dedup)
+  private toolActivityEmitted = new Set<string>()
   
   constructor(options: ACPClientOptions = {}) {
     super()
@@ -178,6 +180,10 @@ export class ACPClient extends EventEmitter {
     
     dbg(`PROMPT_START sessionId=${this.sessionId}`)
     
+    // Reset per-prompt tracking
+    this.toolOutputSeen.clear()
+    this.toolActivityEmitted.clear()
+    
     let responseText = ""
     let currentThought = ""
     
@@ -204,7 +210,18 @@ export class ACPClient extends EventEmitter {
     }
     
     await this.send("session/prompt", params)
-    dbg(`PROMPT_SEND_DONE`)
+    dbg(`PROMPT_SEND_DONE total=${responseText.length}`)
+    
+    // Drain: the JSON-RPC response can arrive before trailing session/update
+    // notifications (text chunks). Wait for the event loop to flush them.
+    // If still empty after drain, wait a bit longer with backoff.
+    if (!responseText) {
+      for (const ms of [10, 50, 200]) {
+        await new Promise(r => setTimeout(r, ms))
+        dbg(`DRAIN_WAIT ${ms}ms total=${responseText.length}`)
+        if (responseText) break
+      }
+    }
     
     this.off("update", updateHandler)
     dbg(`PROMPT_HANDLER_UNREGISTERED total=${responseText.length}`)
@@ -391,15 +408,19 @@ export class ACPClient extends EventEmitter {
           })
           this.emit("tool", { name: toolNameUpdate, status: update.status, args: toolArgsUpdate })
           
-          // Emit human-readable activity event with actual tool name for transparency
-          const activity = this.formatToolActivity(toolNameUpdate, toolArgsUpdate, "start")
-          this.emit("activity", {
-            type: "tool_start",
-            tool: activity.toolName,
-            message: `${activity.description} [${activity.toolName}]`,
-            description: activity.description,
-            details: toolArgsUpdate,
-          })
+          // Emit human-readable activity event -- only once per tool call
+          const tcId = update.toolCallId || toolNameUpdate
+          if (!this.toolActivityEmitted.has(tcId)) {
+            this.toolActivityEmitted.add(tcId)
+            const activity = this.formatToolActivity(toolNameUpdate, toolArgsUpdate, "start")
+            this.emit("activity", {
+              type: "tool_start",
+              tool: activity.toolName,
+              message: `${activity.description} [${activity.toolName}]`,
+              description: activity.description,
+              details: toolArgsUpdate,
+            })
+          }
           
           // Stream partial output if available (e.g., bash stdout during execution)
           // rawOutput.output is CUMULATIVE - compute actual delta
