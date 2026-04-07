@@ -482,6 +482,9 @@ class WebConnector extends BaseConnector<WebSession> {
 
       const clean = sanitizeServerPaths(removeDocMarkers(removeImageMarkers(buf)))
       session.outputChars += clean.length
+      if (!clean && tools > 0) {
+        this.wsSend(clientId, { type: "chunk", text: "He procesado la consulta pero no he podido generar una respuesta. Intentalo de nuevo." })
+      }
       this.wsSend(clientId, { type: "done" })
 
       const sec = ((Date.now() - t0) / 1000).toFixed(1)

@@ -359,8 +359,14 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     client.on("image", imageHandler)
     client.on("permission_rejected", permissionHandler)
 
+    // Timeout to prevent stuck requests (5 minutes)
+    const QUERY_TIMEOUT_MS = 5 * 60 * 1000
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out")), QUERY_TIMEOUT_MS)
+    )
+
     try {
-      await client.prompt(query)
+      await Promise.race([client.prompt(query), timeoutPromise])
 
       // Process images from tool results
       const uploadedPaths = new Set<string>()
@@ -409,6 +415,8 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       if (cleanResponse) {
         session.outputChars += cleanResponse.length
         await this.sendMessage(chatId, cleanResponse)
+      } else if (toolCallCount > 0) {
+        await this.sendMessage(chatId, "He procesado la consulta pero no he podido generar una respuesta. Intentalo de nuevo.")
       }
       // Log elapsed time
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
