@@ -514,6 +514,7 @@ The trigger prefix can be set globally in `chat-bridge.json` or overridden per c
 | Env var | Connector | Fallback |
 |---------|-----------|----------|
 | `SLACK_TRIGGER` | Slack | `chat-bridge.json` trigger |
+| `SLACK_ALLOWED_USERS` | Slack | Comma-separated user IDs. Only listed users can interact with the bot. Unset = all users allowed. |
 | `DISCORD_TRIGGER` | Discord | `chat-bridge.json` trigger |
 | `MATRIX_TRIGGER` | Matrix | `chat-bridge.json` trigger |
 | `MATTERMOST_TRIGGER` | Mattermost | `chat-bridge.json` trigger |

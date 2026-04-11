@@ -256,7 +256,16 @@ The proxy handles login. The web connector serves the widget. Users must authent
 
 ### User Filtering
 
-Block known bad actors in your chat connector:
+The Slack connector has a built-in user allowlist. Set `SLACK_ALLOWED_USERS` to a comma-separated list of Slack user IDs:
+
+```bash
+# .env
+SLACK_ALLOWED_USERS=U01ABC123,U02DEF456
+```
+
+When set, messages from unlisted users are silently dropped -- mentions, channel messages, and thread replies are all filtered. When unset, all users are allowed (default).
+
+For other connectors, implement filtering in your own wrapper:
 
 ```typescript
 const BLOCKED_USERS = ["@spammer:matrix.org"]
