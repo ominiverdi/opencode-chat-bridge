@@ -256,7 +256,19 @@ The proxy handles login. The web connector serves the widget. Users must authent
 
 ### User Filtering
 
-Block known bad actors in your chat connector:
+Use connector allowlists to restrict who can talk to the bot:
+
+```json
+{
+  "slack": { "allowedUsers": ["U01ABC123"] },
+  "matrix": { "allowedUsers": ["@alice:matrix.org"] },
+  "whatsapp": { "allowedUsers": ["34600111222"] }
+}
+```
+
+You can also override each list with env vars such as `SLACK_ALLOWED_USERS` or `WHATSAPP_ALLOWED_USERS`.
+
+For custom filtering logic beyond simple allowlists, wrap the connector and drop messages before processing:
 
 ```typescript
 const BLOCKED_USERS = ["@spammer:matrix.org"]

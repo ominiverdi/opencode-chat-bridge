@@ -534,6 +534,36 @@ MATRIX_ACCESS_TOKEN="syt_..."
 DISCORD_TOKEN="..."
 ```
 
+### User Allowlists
+
+Each chat connector can restrict access to a connector-specific list of user IDs. Empty list means all users are allowed.
+
+These IDs are platform-native identifiers, not always human-friendly usernames or phone numbers. For example, Slack uses member IDs like `U01ABC123`, while WhatsApp may use a sender ID shown in connector logs.
+
+In `chat-bridge.json`:
+
+```json
+{
+  "slack": { "allowedUsers": ["U01ABC123", "U02DEF456"] },
+  "whatsapp": { "allowedUsers": ["34600111222"] },
+  "matrix": { "allowedUsers": ["@alice:matrix.org"] },
+  "discord": { "allowedUsers": ["123456789012345678"] },
+  "mattermost": { "allowedUsers": ["user-id-1"] }
+}
+```
+
+Environment variable overrides:
+
+| Env var | Connector |
+|---------|-----------|
+| `SLACK_ALLOWED_USERS` | Slack |
+| `WHATSAPP_ALLOWED_USERS` | WhatsApp |
+| `MATRIX_ALLOWED_USERS` | Matrix |
+| `DISCORD_ALLOWED_USERS` | Discord |
+| `MATTERMOST_ALLOWED_USERS` | Mattermost |
+
+Breaking change: WhatsApp now uses `allowedUsers` / `WHATSAPP_ALLOWED_USERS`. The older `allowedNumbers` / `WHATSAPP_ALLOWED_NUMBERS` names were removed.
+
 ## Example Configurations
 
 ### Minimal (CLI Only)

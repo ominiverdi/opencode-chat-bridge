@@ -28,6 +28,7 @@ import { getConfig } from "../src/config"
 import {
   BaseConnector,
   type BaseSession,
+  parseCsvList,
   extractImagePaths,
   removeImageMarkers,
   sanitizeServerPaths,
@@ -46,6 +47,8 @@ const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7
 const SESSION_RETENTION_MINS = parseSessionRetentionMins(process.env)
 const RATE_LIMIT_SECONDS = 5
 const THREAD_ISOLATION = config.slack.threadIsolation
+const ENV_ALLOWED_USERS = parseCsvList(process.env.SLACK_ALLOWED_USERS)
+const ALLOWED_USERS = ENV_ALLOWED_USERS.length > 0 ? ENV_ALLOWED_USERS : config.slack.allowedUsers
 
 function parseSessionRetentionMins(env: NodeJS.ProcessEnv): number {
   const raw = env.SESSION_RETENTION_MINS
@@ -220,6 +223,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       rateLimitSeconds: RATE_LIMIT_SECONDS,
       sessionRetentionDays: SESSION_RETENTION_DAYS,
       sessionRetentionMins: SESSION_RETENTION_MINS,
+      allowedUsers: ALLOWED_USERS,
     })
     this.threadIsolation = THREAD_ISOLATION
   }
@@ -270,6 +274,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       }
 
       if (this.isDuplicateEvent(context.dedupeId)) return
+      if (!this.isUserAllowed(context.userId)) return
       const sessionId = resolveSessionId(context.channelId, context.replyThreadTs, this.threadIsolation)
       this.touchSessionActivity(sessionId)
       this.log(`[MENTION] ${context.userId} in ${sessionId}: ${context.text}`)
@@ -306,6 +311,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       }
 
       if (this.isDuplicateEvent(context.dedupeId)) return
+      if (!this.isUserAllowed(context.userId)) return
       const sessionId = resolveSessionId(context.channelId, context.replyThreadTs, this.threadIsolation)
       this.touchSessionActivity(sessionId)
       this.log(`[MSG] ${context.userId} in ${sessionId}: ${context.text}`)
@@ -362,6 +368,7 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       }
 
       if (this.isDuplicateEvent(context.dedupeId)) return
+      if (!this.isUserAllowed(context.userId)) return
 
       // Only forward if there is already a session for this thread
       const sessionId = resolveSessionId(context.channelId, context.replyThreadTs, this.threadIsolation)

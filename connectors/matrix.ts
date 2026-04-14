@@ -44,6 +44,7 @@ import { marked } from "marked"
 import {
   BaseConnector,
   type BaseSession,
+  parseCsvList,
   extractImagePaths,
   removeImageMarkers,
   sanitizeServerPaths,
@@ -64,6 +65,8 @@ const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const FORMAT_HTML = config.matrix.formatHtml || false
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 const THREAD_ISOLATION = config.matrix.threadIsolation
+const ENV_ALLOWED_USERS = parseCsvList(process.env.MATRIX_ALLOWED_USERS)
+const ALLOWED_USERS = ENV_ALLOWED_USERS.length > 0 ? ENV_ALLOWED_USERS : config.matrix.allowedUsers
 
 // Storage paths
 const STORAGE_PATH = process.env.MATRIX_STORAGE_PATH ||
@@ -117,6 +120,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
       botName: BOT_NAME,
       rateLimitSeconds: RATE_LIMIT_SECONDS,
       sessionRetentionDays: SESSION_RETENTION_DAYS,
+      allowedUsers: ALLOWED_USERS,
     })
     this.threadIsolation = THREAD_ISOLATION
   }
@@ -318,6 +322,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
 
     const myUserId = await this.matrix!.getUserId()
     if (message.sender === myUserId) return
+    if (!this.isUserAllowed(message.sender)) return
 
     const body = message.textBody.trim()
     if (!body) return

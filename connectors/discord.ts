@@ -26,6 +26,7 @@ import { ACPClient, type ActivityEvent } from "../src"
 import {
   BaseConnector,
   type BaseSession,
+  parseCsvList,
   extractImagePaths,
   removeImageMarkers,
   sanitizeServerPaths,
@@ -42,6 +43,8 @@ const TRIGGER = process.env.DISCORD_TRIGGER || config.trigger
 const BOT_NAME = config.botName
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
+const ENV_ALLOWED_USERS = parseCsvList(process.env.DISCORD_ALLOWED_USERS)
+const ALLOWED_USERS = ENV_ALLOWED_USERS.length > 0 ? ENV_ALLOWED_USERS : config.discord.allowedUsers
 
 // =============================================================================
 // Session Type
@@ -65,6 +68,7 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
       botName: BOT_NAME,
       rateLimitSeconds: RATE_LIMIT_SECONDS,
       sessionRetentionDays: SESSION_RETENTION_DAYS,
+      allowedUsers: ALLOWED_USERS,
     })
   }
 
@@ -140,6 +144,8 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     const content = message.content.trim()
     const userId = message.author.id
     const channelId = message.channelId
+
+    if (!this.isUserAllowed(userId)) return
 
     let query = ""
 

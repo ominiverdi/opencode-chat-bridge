@@ -161,9 +161,21 @@ Go to OAuth & Permissions and add the missing scope, then reinstall the app.
 
 Make sure you've subscribed to `message.channels` in Event Subscriptions.
 
+## User Allowlist
+
+Restrict the bot to specific Slack users with `SLACK_ALLOWED_USERS` or `slack.allowedUsers` in `chat-bridge.json`.
+
+```bash
+# .env
+SLACK_ALLOWED_USERS=U01ABC123,U02DEF456
+```
+
+To find a Slack user ID: click profile picture, then copy member ID from the profile menu.
+
 ## Security Notes
 
 - Keep your tokens secret - never commit `.env` to git
 - The bot only has access to channels it's invited to
+- Use `SLACK_ALLOWED_USERS` to restrict which users can interact with the bot
 - Use a dedicated workspace for testing before deploying to production
 - Review the [Security documentation](SECURITY.md) for permission model details

@@ -27,6 +27,7 @@ import { getConfig } from "../src/config"
 import {
   BaseConnector,
   type BaseSession,
+  parseCsvList,
   extractImagePaths,
   removeImageMarkers,
   sanitizeServerPaths,
@@ -45,6 +46,8 @@ const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 const THREAD_ISOLATION = config.mattermost.threadIsolation
+const ENV_ALLOWED_USERS = parseCsvList(process.env.MATTERMOST_ALLOWED_USERS)
+const ALLOWED_USERS = ENV_ALLOWED_USERS.length > 0 ? ENV_ALLOWED_USERS : config.mattermost.allowedUsers
 
 // =============================================================================
 // Mattermost API helpers
@@ -231,6 +234,7 @@ export class MattermostConnector extends BaseConnector<ChannelSession> {
       botName: BOT_NAME,
       rateLimitSeconds: RATE_LIMIT_SECONDS,
       sessionRetentionDays: SESSION_RETENTION_DAYS,
+      allowedUsers: ALLOWED_USERS,
     })
     this.threadIsolation = THREAD_ISOLATION
   }
@@ -453,6 +457,7 @@ export class MattermostConnector extends BaseConnector<ChannelSession> {
       const ignoreUsers = config.mattermost.ignoreUsers || []
       if (ignoreChannels.includes(context.channelId)) return
       if (ignoreUsers.includes(context.userId)) return
+      if (!this.isUserAllowed(context.userId)) return
 
       const senderName = data.data.sender_name || context.userId
 

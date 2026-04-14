@@ -13,7 +13,7 @@
  * 
  * Environment variables:
  *   WHATSAPP_TRIGGER - Message prefix to trigger bot (default: !oc)
- *   WHATSAPP_ALLOWED_NUMBERS - Comma-separated phone numbers to respond to (optional)
+ *   WHATSAPP_ALLOWED_USERS - Comma-separated phone numbers to respond to (optional)
  */
 
 import fs from "fs"
@@ -31,6 +31,7 @@ import { getConfig } from "../src/config"
 import {
   BaseConnector,
   type BaseSession,
+  parseCsvList,
   extractImagePaths,
   extractDocPaths,
   removeImageMarkers,
@@ -58,7 +59,8 @@ const config = getConfig()
 const TRIGGER = process.env.WHATSAPP_TRIGGER || config.trigger
 const BOT_NAME = config.botName
 const RATE_LIMIT_SECONDS = config.rateLimitSeconds
-const ALLOWED_NUMBERS = config.whatsapp.allowedNumbers
+const ENV_ALLOWED_USERS = parseCsvList(process.env.WHATSAPP_ALLOWED_USERS)
+const ALLOWED_USERS = ENV_ALLOWED_USERS.length > 0 ? ENV_ALLOWED_USERS : config.whatsapp.allowedUsers
 const AUTH_FOLDER = path.resolve(process.cwd(), config.whatsapp.authFolder)
 const SESSION_RETENTION_DAYS = parseInt(process.env.SESSION_RETENTION_DAYS || "7", 10)
 
@@ -85,6 +87,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       botName: BOT_NAME,
       rateLimitSeconds: RATE_LIMIT_SECONDS,
       sessionRetentionDays: SESSION_RETENTION_DAYS,
+      allowedUsers: ALLOWED_USERS,
     })
   }
 
@@ -93,14 +96,8 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
   // ---------------------------------------------------------------------------
 
   async start(): Promise<void> {
-    this.log("Starting...")
-    console.log(`  Auth folder: ${AUTH_FOLDER}`)
-    if (ALLOWED_NUMBERS.length > 0) {
-      console.log(`  Allowed numbers: ${ALLOWED_NUMBERS.join(", ")}`)
-    } else {
-      console.log(`  Allowed numbers: ALL (no filter)`)
-    }
     this.logStartup()
+    console.log(`  Auth folder: ${AUTH_FOLDER}`)
     await this.cleanupSessions()
     await this.connect()
     this.startSessionExpiryLoop()
@@ -242,10 +239,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     const phoneNumber = chatId.split("@")[0]
 
     // Check if number is allowed
-    if (ALLOWED_NUMBERS.length > 0 && !ALLOWED_NUMBERS.includes(phoneNumber)) {
-      this.log(`[IGNORED] Message from non-allowed number: ${phoneNumber}`)
-      return
-    }
+    if (!this.isUserAllowed(phoneNumber)) return
 
     // Deduplicate events
     const dedupeId = msg.key.id || `${chatId}:${Date.now()}`

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Universal user allowlists (Slack, WhatsApp, Matrix, Discord, Mattermost)** -
+  Each connector now supports `allowedUsers` in `chat-bridge.json` plus
+  per-connector `*_ALLOWED_USERS` env vars. Messages from unlisted users are
+  silently dropped. Feature originated from PR #28 by @llvilanova and was
+  generalized across all connectors.
 - **Thread isolation (Slack, Mattermost, Matrix)** - Sessions are now keyed per thread (`channel:threadTs`)
   instead of per channel. Each Slack thread gets its own isolated OpenCode session.
   Replies always stay in threads. Implicit follow-ups work without re-mentioning
@@ -59,6 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Shows both the permission denial and the tool error to users
 
 ### Changed
+- **Breaking config rename (WhatsApp)** - `allowedNumbers` and
+  `WHATSAPP_ALLOWED_NUMBERS` were removed in favor of `allowedUsers` and
+  `WHATSAPP_ALLOWED_USERS` to match all other connectors.
 ### Fixed
 - **Trigger env var inconsistency** - All connectors now support per-connector
   trigger overrides (`SLACK_TRIGGER`, `MATTERMOST_TRIGGER`, etc.) with fallback

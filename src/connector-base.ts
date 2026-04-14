@@ -55,6 +55,15 @@ export interface ConnectorConfig {
   rateLimitSeconds: number    // 5
   sessionRetentionDays: number // 7 (startup cleanup)
   sessionRetentionMins?: number // 30 (runtime expiry, optional)
+  allowedUsers?: string[]
+}
+
+export function parseCsvList(value?: string): string[] {
+  if (!value) return []
+  return value
+    .split(",")
+    .map(item => item.trim())
+    .filter(Boolean)
 }
 
 // =============================================================================
@@ -329,6 +338,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   private eventDeduplicator: EventDeduplicator
   /** Session IDs with an in-flight query -- never evict these */
   protected activeQueries = new Set<string>()
+  private allowedUsers: Set<string> | null = null
   private expiryInterval: NodeJS.Timeout | null = null
   
   constructor(config: ConnectorConfig) {
@@ -340,6 +350,10 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     // Apply SESSION_RETENTION_MINS from env if not set in config
     if (this.config.sessionRetentionMins === undefined) {
       this.config.sessionRetentionMins = parseSessionRetentionMins(process.env)
+    }
+
+    if (this.config.allowedUsers && this.config.allowedUsers.length > 0) {
+      this.allowedUsers = new Set(this.config.allowedUsers)
     }
   }
   
@@ -380,9 +394,21 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     console.log(`  Bot name: ${this.config.botName}`)
     console.log(`  Session storage: ${storageInfo.baseDir}`)
     console.log(`    (${storageInfo.source})`)
+    if (this.allowedUsers) {
+      console.log(`  Allowed users: ${Array.from(this.allowedUsers).join(", ")}`)
+    }
     if (this.config.sessionRetentionMins) {
       console.log(`  Session expiry: ${this.config.sessionRetentionMins} min (inactivity)`)
     }
+  }
+
+  protected isUserAllowed(userId: string): boolean {
+    if (!this.allowedUsers) return true
+    const allowed = this.allowedUsers.has(userId)
+    if (!allowed) {
+      this.log(`[IGNORED] Message from non-allowed user: ${userId}`)
+    }
+    return allowed
   }
   
   // ---------------------------------------------------------------------------

@@ -33,7 +33,7 @@ WHATSAPP_TRIGGER=!oc
 
 # Restrict bot to specific phone numbers (comma-separated, optional)
 # Leave empty to respond to everyone who messages
-WHATSAPP_ALLOWED_NUMBERS=1234567890,0987654321
+WHATSAPP_ALLOWED_USERS=1234567890,0987654321
 ```
 
 ## Step 3: Run the Connector
@@ -49,7 +49,7 @@ Starting WhatsApp connector...
   Trigger: !oc
   Bot name: OpenCode Bot
   Auth folder: /path/to/.whatsapp-auth
-  Allowed numbers: ALL (no filter)
+  Allowed users: ALL (no filter)
 
 Scan this QR code with WhatsApp:
 ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -103,14 +103,16 @@ Messages must start with the trigger (default: `!oc`):
 
 ### Restricting Access
 
-To limit who can use the bot, set allowed phone numbers:
+To limit who can use the bot, set allowed users:
 
 ```bash
 # .env
-WHATSAPP_ALLOWED_NUMBERS=1234567890,0987654321
+WHATSAPP_ALLOWED_USERS=1234567890,0987654321
 ```
 
-Numbers should be in international format without the `+` prefix.
+WhatsApp matches connector-native sender IDs. In many direct chats this looks like a phone-like number without the `+` prefix, but some accounts use a different LID-based identifier. If unsure, check the connector logs after sending a message and use the ID shown in `[MSG]` or `[IGNORED]` lines.
+
+Breaking change: older builds used `WHATSAPP_ALLOWED_NUMBERS`. That name has been removed in favor of the cross-connector `*_ALLOWED_USERS` pattern.
 
 ## Session Persistence
 
@@ -158,7 +160,7 @@ To fix:
 
 1. Check that the connector is running and shows "WhatsApp connected!"
 2. Verify the message starts with the trigger (`!oc`)
-3. If using `WHATSAPP_ALLOWED_NUMBERS`, verify your number is in the list
+3. If using `WHATSAPP_ALLOWED_USERS`, verify your number is in the list
 4. Check the logs for errors
 
 ### Rate Limiting
@@ -169,7 +171,7 @@ The connector has built-in rate limiting (default: 5 seconds between messages pe
 
 - **Keep `.whatsapp-auth/` secure** - it contains session keys
 - **Never commit `.whatsapp-auth/` to git** - it's in `.gitignore` by default
-- Use `WHATSAPP_ALLOWED_NUMBERS` to restrict access in production
+- Use `WHATSAPP_ALLOWED_USERS` to restrict access in production
 - The linked WhatsApp account should be a dedicated number, not your personal account
 - Review the [Security documentation](SECURITY.md) for permission model details
 

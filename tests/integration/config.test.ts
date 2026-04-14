@@ -177,7 +177,7 @@ describe("config", () => {
       
       const configContent = {
         whatsapp: {
-          allowedNumbers: ["{env:ALLOWED_NUM}", "0987654321"]
+          allowedUsers: ["{env:ALLOWED_NUM}", "0987654321"]
         }
       }
       fs.writeFileSync(
@@ -188,8 +188,8 @@ describe("config", () => {
 
       const config = loadConfig()
 
-      expect(config.whatsapp.allowedNumbers).toContain("1234567890")
-      expect(config.whatsapp.allowedNumbers).toContain("0987654321")
+      expect(config.whatsapp.allowedUsers).toContain("1234567890")
+      expect(config.whatsapp.allowedUsers).toContain("0987654321")
     })
   })
 

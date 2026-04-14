@@ -8,6 +8,8 @@ import {
   RateLimiter,
   SessionManager,
   CommandHandler,
+  BaseConnector,
+  parseCsvList,
   type BaseSession,
   type SessionStats,
 } from "../../src/connector-base"
@@ -60,6 +62,63 @@ describe("RateLimiter", () => {
   test("handles zero limit (always allow)", () => {
     expect(limiter.check("user1", 0)).toBe(true)
     expect(limiter.check("user1", 0)).toBe(true)
+  })
+})
+
+// =============================================================================
+// Shared helpers
+// =============================================================================
+
+describe("parseCsvList", () => {
+  test("parses comma-separated values", () => {
+    expect(parseCsvList("a, b ,c")).toEqual(["a", "b", "c"])
+  })
+
+  test("filters empty values", () => {
+    expect(parseCsvList("a,, ,b")).toEqual(["a", "b"])
+  })
+
+  test("returns empty array for empty input", () => {
+    expect(parseCsvList("")).toEqual([])
+    expect(parseCsvList(undefined)).toEqual([])
+  })
+})
+
+describe("BaseConnector allowlist", () => {
+  class TestConnector extends BaseConnector<BaseSession> {
+    constructor(allowedUsers?: string[]) {
+      super({
+        connector: "test",
+        trigger: "!oc",
+        botName: "Test",
+        rateLimitSeconds: 5,
+        sessionRetentionDays: 7,
+        allowedUsers,
+      })
+    }
+
+    async start(): Promise<void> {}
+    async stop(): Promise<void> {}
+    async sendMessage(): Promise<void> {}
+
+    public canUserAccess(userId: string): boolean {
+      return this.isUserAllowed(userId)
+    }
+  }
+
+  test("allows all users when allowlist is empty", () => {
+    const connector = new TestConnector([])
+    expect(connector.canUserAccess("user-1")).toBe(true)
+  })
+
+  test("allows listed users", () => {
+    const connector = new TestConnector(["user-1", "user-2"])
+    expect(connector.canUserAccess("user-1")).toBe(true)
+  })
+
+  test("blocks unlisted users", () => {
+    const connector = new TestConnector(["user-1", "user-2"])
+    expect(connector.canUserAccess("user-3")).toBe(false)
   })
 })
 

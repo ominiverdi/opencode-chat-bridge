@@ -22,6 +22,7 @@ export interface MatrixConfig {
   triggerPatterns: string[]
   ignoreRooms: string[]
   ignoreUsers: string[]
+  allowedUsers: string[]
   formatHtml: boolean
   threadIsolation: boolean  // true: per-thread sessions + thread replies, false: per-room
 }
@@ -34,18 +35,25 @@ export interface MattermostConfig {
   respondToMentions: boolean // Respond when @mentioned (in addition to trigger)
   ignoreChannels: string[] // Channel IDs to ignore
   ignoreUsers: string[]    // User IDs to ignore
+  allowedUsers: string[]
   threadIsolation: boolean // true: per-thread sessions + thread replies, false: per-channel
 }
 
 export interface WhatsAppConfig {
   enabled: boolean
   authFolder: string
-  allowedNumbers: string[]
+  allowedUsers: string[]
 }
 
 export interface SlackConfig {
   enabled: boolean
+  allowedUsers: string[]
   threadIsolation: boolean  // true: per-thread sessions + thread replies, false: per-channel
+}
+
+export interface DiscordConfig {
+  enabled: boolean
+  allowedUsers: string[]
 }
 
 
@@ -68,6 +76,7 @@ export interface ChatBridgeConfig {
   mattermost: MattermostConfig
   whatsapp: WhatsAppConfig
   slack: SlackConfig
+  discord: DiscordConfig
   web: WebConfig
 }
 
@@ -95,6 +104,7 @@ const defaultConfig: ChatBridgeConfig = {
     triggerPatterns: ["!oc "],
     ignoreRooms: [],
     ignoreUsers: [],
+    allowedUsers: [],
     formatHtml: false,
     threadIsolation: true,  // Per-thread sessions by default
   },
@@ -106,16 +116,22 @@ const defaultConfig: ChatBridgeConfig = {
     respondToMentions: true,
     ignoreChannels: [],
     ignoreUsers: [],
+    allowedUsers: [],
     threadIsolation: true,  // Per-thread sessions by default
   },
   whatsapp: {
     enabled: false,
     authFolder: "./.whatsapp-auth",
-    allowedNumbers: []
+    allowedUsers: []
   },
   slack: {
     enabled: false,
+    allowedUsers: [],
     threadIsolation: true,  // Per-thread sessions by default
+  },
+  discord: {
+    enabled: false,
+    allowedUsers: [],
   },
   web: {
     enabled: false,
