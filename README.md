@@ -2,6 +2,12 @@
 
 Bridge [OpenCode](https://opencode.ai) to chat platforms with permission-based security.
 
+## Recent Changes
+
+- New cross-connector `allowedUsers` allowlists for Slack, WhatsApp, Matrix, Discord, and Mattermost
+- Breaking change: WhatsApp renamed `allowedNumbers` to `allowedUsers` and `WHATSAPP_ALLOWED_NUMBERS` to `WHATSAPP_ALLOWED_USERS`
+- Slack, Mattermost, and Matrix support per-thread session isolation
+
 ## Table of Contents
 
 - [Connectors](#connectors) -- Matrix, Slack, WhatsApp, Mattermost, Discord, Web
