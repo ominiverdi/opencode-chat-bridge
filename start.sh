@@ -26,7 +26,7 @@ if curl -s http://127.0.0.1:4096/session > /dev/null 2>&1; then
     echo "OpenCode server already running on port 4096"
 else
     echo "Starting OpenCode server..."
-    /home/ominiverdi/.opencode/bin/opencode serve --port 4096 &
+    opencode serve --port 4096 &
     sleep 3
 fi
 

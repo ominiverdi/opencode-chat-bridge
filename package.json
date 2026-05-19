@@ -14,6 +14,8 @@
     "build": "bun build src/index.ts --outdir dist --target node --format esm",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "check:connectors": "for f in connectors/*.ts; do bun build \"$f\" --outdir /tmp/opencode-chat-bridge-connector-check --target node --format esm >/dev/null || exit 1; done",
+    "check": "bun run typecheck && bun test && bun run check:connectors",
     "matrix": "bun connectors/matrix.ts",
     "slack": "bun connectors/slack.ts",
     "whatsapp": "bun connectors/whatsapp.ts",

@@ -86,7 +86,7 @@ export interface OpenCodeCommand {
 export class ACPClient extends EventEmitter {
   private acp: ChildProcess | null = null
   private requestId = 0
-  private pending = new Map<number, (msg: any) => void>()
+  private pending = new Map<number, { resolve: (msg: any) => void; reject: (err: Error) => void }>()
   private buffer = ""
   private sessionId: string | null = null
   private cwd: string
@@ -135,7 +135,14 @@ export class ACPClient extends EventEmitter {
         this.emit("error", text)
       }
     })
-    this.acp.on("close", (code) => this.emit("close", code))
+    this.acp.on("error", (err) => {
+      this.rejectPending(err instanceof Error ? err : new Error(String(err)))
+      this.emit("error", err)
+    })
+    this.acp.on("close", (code) => {
+      this.rejectPending(new Error(`ACP process exited${code === null ? "" : ` with code ${code}`}`))
+      this.emit("close", code)
+    })
     
     // Wait for process to start
     await this.sleep(300)
@@ -209,24 +216,26 @@ export class ACPClient extends EventEmitter {
       params.agent = options.agent
     }
     
-    await this.send("session/prompt", params)
-    dbg(`PROMPT_SEND_DONE total=${responseText.length}`)
-    
-    // Drain: the JSON-RPC response can arrive before trailing session/update
-    // notifications (text chunks). Wait for the event loop to flush them.
-    // If still empty after drain, wait a bit longer with backoff.
-    if (!responseText) {
-      for (const ms of [10, 50, 200]) {
-        await new Promise(r => setTimeout(r, ms))
-        dbg(`DRAIN_WAIT ${ms}ms total=${responseText.length}`)
-        if (responseText) break
+    try {
+      await this.send("session/prompt", params)
+      dbg(`PROMPT_SEND_DONE total=${responseText.length}`)
+      
+      // Drain: the JSON-RPC response can arrive before trailing session/update
+      // notifications (text chunks). Wait for the event loop to flush them.
+      // If still empty after drain, wait a bit longer with backoff.
+      if (!responseText) {
+        for (const ms of [10, 50, 200]) {
+          await new Promise(r => setTimeout(r, ms))
+          dbg(`DRAIN_WAIT ${ms}ms total=${responseText.length}`)
+          if (responseText) break
+        }
       }
+      
+      return responseText
+    } finally {
+      this.off("update", updateHandler)
+      dbg(`PROMPT_HANDLER_UNREGISTERED total=${responseText.length}`)
     }
-    
-    this.off("update", updateHandler)
-    dbg(`PROMPT_HANDLER_UNREGISTERED total=${responseText.length}`)
-    
-    return responseText
   }
   
   async disconnect(): Promise<void> {
@@ -234,16 +243,34 @@ export class ACPClient extends EventEmitter {
       this.acp.kill()
       this.acp = null
     }
+    this.rejectPending(new Error("ACP client disconnected"))
     this.sessionId = null
   }
   
   private send(method: string, params: any = {}): Promise<any> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      if (!this.acp || !this.acp.stdin || this.acp.killed || this.acp.stdin.destroyed) {
+        reject(new Error("ACP client is not connected"))
+        return
+      }
+
       const id = ++this.requestId
       const msg = { jsonrpc: "2.0", id, method, params }
-      this.pending.set(id, resolve)
-      this.acp!.stdin!.write(JSON.stringify(msg) + "\n")
+      this.pending.set(id, { resolve, reject })
+      this.acp.stdin.write(JSON.stringify(msg) + "\n", (err) => {
+        if (err) {
+          this.pending.delete(id)
+          reject(err)
+        }
+      })
     })
+  }
+
+  private rejectPending(err: Error): void {
+    for (const { reject } of this.pending.values()) {
+      reject(err)
+    }
+    this.pending.clear()
   }
   
   private handleData(data: Buffer): void {
@@ -281,9 +308,9 @@ export class ACPClient extends EventEmitter {
     // Handle responses
     if (msg.id && this.pending.has(msg.id)) {
       dbg(`RESOLVE_PENDING id=${msg.id}`)
-      const resolve = this.pending.get(msg.id)!
+      const pending = this.pending.get(msg.id)!
       this.pending.delete(msg.id)
-      resolve(msg)
+      pending.resolve(msg)
     }
   }
   

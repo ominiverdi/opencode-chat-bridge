@@ -176,7 +176,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
 
     // Handle connection updates
     this.sock.ev.on("connection.update", async (update) => {
-      const { connection, lastDisconnect, qr } = update
+      const { connection, lastDisconnect, qr, receivedPendingNotifications } = update
 
       if (qr) {
         console.log("\n=== Scan this QR code with WhatsApp ===\n")
@@ -204,6 +204,10 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
         console.log(`  My number: ${this.myNumber}`)
         this.log("Listening for messages...")
       }
+
+      if (receivedPendingNotifications) {
+        this.log("Initial sync complete (received all pending notifications).")
+      }
     })
 
     // Save credentials on update
@@ -211,7 +215,17 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
 
     // Handle incoming messages
     this.sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify") {
+        if (type === "append") {
+          this.log(`Ignoring history sync messages (type: ${type})`)
+        } else {
+          this.log(`Ignoring non-notify upsert (type: ${type})`)
+        }
+        return
+      }
+
       for (const msg of messages) {
+
         await this.handleMessage(msg)
       }
     })
@@ -281,12 +295,12 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
   private async processQuery(chatId: string, phoneNumber: string, query: string): Promise<void> {
     const startTime = Date.now()
 
-    // Guard against concurrent queries on the same session
+    // WhatsApp uses "latest message wins": abort the old OpenCode process and
+    // drop its cached session so the new request never reuses a disconnected client.
     if (this.isQueryActive(chatId)) {
-      await this.sendMessage(chatId, "A request is already running. Please wait for it to finish.")
-      return
+      this.log(`[ABORT] New query from ${phoneNumber}, aborting previous...`)
+      this.abortQuery(chatId)
     }
-    this.markQueryActive(chatId)
 
     // Get or create session
     const session = await this.getOrCreateSession(chatId, (client) =>
@@ -297,6 +311,12 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       await this.sendMessage(chatId, "Sorry, I couldn't connect to the AI service.")
       return
     }
+
+    const activeQuery = this.markQueryActive(chatId, () => {
+      this.log(`[ABORT-EXEC] Disconnecting ACP client for ${chatId}`)
+      this.sessionManager.delete(chatId)
+      void session.client.disconnect()
+    })
 
     // Update session stats
     session.messageCount++
@@ -355,9 +375,10 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
 
     // Timeout to prevent stuck requests (5 minutes)
     const QUERY_TIMEOUT_MS = 5 * 60 * 1000
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Request timed out")), QUERY_TIMEOUT_MS)
-    )
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("Request timed out")), QUERY_TIMEOUT_MS)
+    })
 
     try {
       await Promise.race([client.prompt(query), timeoutPromise])
@@ -419,16 +440,21 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       this.log(`[DONE] ${elapsed}s (${outChars} chars${tools})`)
     } catch (err) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      this.logError(`[FAIL] ${elapsed}s:`, err)
-      await this.sendMessage(chatId, "Sorry, something went wrong processing your request.")
+      if (this.wasQueryAborted(activeQuery)) {
+        this.log(`[CANCELLED] ${elapsed}s: superseded by a newer WhatsApp query`)
+      } else {
+        this.logError(`[FAIL] ${elapsed}s:`, err)
+        await this.sendMessage(chatId, "Sorry, something went wrong processing your request.")
+      }
     } finally {
+      if (timeoutId) clearTimeout(timeoutId)
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)
       client.off("permission_rejected", permissionHandler)
-      if (session) session.lastActivity = new Date()
-      this.markQueryDone(chatId)
+      session.lastActivity = new Date()
+      this.markQueryDone(chatId, activeQuery)
     }
   }
 
