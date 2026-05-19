@@ -69,6 +69,47 @@ describe("RateLimiter", () => {
 // Shared helpers
 // =============================================================================
 
+class TestConnector extends BaseConnector<BaseSession> {
+  constructor(allowedUsers?: string[]) {
+    super({
+      connector: "test",
+      trigger: "!oc",
+      botName: "Test",
+      rateLimitSeconds: 5,
+      sessionRetentionDays: 7,
+      allowedUsers,
+    })
+  }
+
+  async start(): Promise<void> {}
+  async stop(): Promise<void> {}
+  async sendMessage(): Promise<void> {}
+
+  public canUserAccess(userId: string): boolean {
+    return this.isUserAllowed(userId)
+  }
+
+  public startQuery(sessionId: string, abortFn?: () => void) {
+    return this.markQueryActive(sessionId, abortFn)
+  }
+
+  public finishQuery(sessionId: string, handle?: ReturnType<TestConnector["startQuery"]>): void {
+    this.markQueryDone(sessionId, handle)
+  }
+
+  public hasActiveQuery(sessionId: string): boolean {
+    return this.isQueryActive(sessionId)
+  }
+
+  public cancelQuery(sessionId: string): boolean {
+    return this.abortQuery(sessionId)
+  }
+
+  public isAborted(handle: ReturnType<TestConnector["startQuery"]>): boolean {
+    return this.wasQueryAborted(handle)
+  }
+}
+
 describe("parseCsvList", () => {
   test("parses comma-separated values", () => {
     expect(parseCsvList("a, b ,c")).toEqual(["a", "b", "c"])
@@ -85,27 +126,6 @@ describe("parseCsvList", () => {
 })
 
 describe("BaseConnector allowlist", () => {
-  class TestConnector extends BaseConnector<BaseSession> {
-    constructor(allowedUsers?: string[]) {
-      super({
-        connector: "test",
-        trigger: "!oc",
-        botName: "Test",
-        rateLimitSeconds: 5,
-        sessionRetentionDays: 7,
-        allowedUsers,
-      })
-    }
-
-    async start(): Promise<void> {}
-    async stop(): Promise<void> {}
-    async sendMessage(): Promise<void> {}
-
-    public canUserAccess(userId: string): boolean {
-      return this.isUserAllowed(userId)
-    }
-  }
-
   test("allows all users when allowlist is empty", () => {
     const connector = new TestConnector([])
     expect(connector.canUserAccess("user-1")).toBe(true)
@@ -119,6 +139,42 @@ describe("BaseConnector allowlist", () => {
   test("blocks unlisted users", () => {
     const connector = new TestConnector(["user-1", "user-2"])
     expect(connector.canUserAccess("user-3")).toBe(false)
+  })
+})
+
+describe("BaseConnector active query handles", () => {
+  test("tracks active queries", () => {
+    const connector = new TestConnector()
+    const handle = connector.startQuery("session-1")
+
+    expect(connector.hasActiveQuery("session-1")).toBe(true)
+
+    connector.finishQuery("session-1", handle)
+    expect(connector.hasActiveQuery("session-1")).toBe(false)
+  })
+
+  test("stale query handle cannot clear newer active query", () => {
+    const connector = new TestConnector()
+    const oldHandle = connector.startQuery("session-1")
+    const newHandle = connector.startQuery("session-1")
+
+    connector.finishQuery("session-1", oldHandle)
+    expect(connector.hasActiveQuery("session-1")).toBe(true)
+
+    connector.finishQuery("session-1", newHandle)
+    expect(connector.hasActiveQuery("session-1")).toBe(false)
+  })
+
+  test("abort marks handle as aborted and invokes abort callback", () => {
+    const connector = new TestConnector()
+    let aborted = false
+    const handle = connector.startQuery("session-1", () => { aborted = true })
+
+    expect(connector.cancelQuery("session-1")).toBe(true)
+
+    expect(aborted).toBe(true)
+    expect(connector.isAborted(handle)).toBe(true)
+    expect(connector.hasActiveQuery("session-1")).toBe(false)
   })
 })
 

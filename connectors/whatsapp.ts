@@ -23,7 +23,6 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
-  SyncState,
 } from "baileys"
 import { Boom } from "@hapi/boom"
 import * as qrcode from "qrcode-terminal"
@@ -296,7 +295,8 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
   private async processQuery(chatId: string, phoneNumber: string, query: string): Promise<void> {
     const startTime = Date.now()
 
-    // Guard against concurrent queries on the same session
+    // WhatsApp uses "latest message wins": abort the old OpenCode process and
+    // drop its cached session so the new request never reuses a disconnected client.
     if (this.isQueryActive(chatId)) {
       this.log(`[ABORT] New query from ${phoneNumber}, aborting previous...`)
       this.abortQuery(chatId)
@@ -312,17 +312,16 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       return
     }
 
-    this.markQueryActive(chatId, () => {
+    const activeQuery = this.markQueryActive(chatId, () => {
       this.log(`[ABORT-EXEC] Disconnecting ACP client for ${chatId}`)
-      session.client.disconnect()
+      this.sessionManager.delete(chatId)
+      void session.client.disconnect()
     })
 
-    try {
-      // Update session stats
-      session.messageCount++
-      session.lastActivity = new Date()
-      session.inputChars += query.length
-
+    // Update session stats
+    session.messageCount++
+    session.lastActivity = new Date()
+    session.inputChars += query.length
 
     const client = session.client
 
@@ -376,9 +375,10 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
 
     // Timeout to prevent stuck requests (5 minutes)
     const QUERY_TIMEOUT_MS = 5 * 60 * 1000
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Request timed out")), QUERY_TIMEOUT_MS)
-    )
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("Request timed out")), QUERY_TIMEOUT_MS)
+    })
 
     try {
       await Promise.race([client.prompt(query), timeoutPromise])
@@ -440,16 +440,21 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       this.log(`[DONE] ${elapsed}s (${outChars} chars${tools})`)
     } catch (err) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      this.logError(`[FAIL] ${elapsed}s:`, err)
-      await this.sendMessage(chatId, "Sorry, something went wrong processing your request.")
+      if (this.wasQueryAborted(activeQuery)) {
+        this.log(`[CANCELLED] ${elapsed}s: superseded by a newer WhatsApp query`)
+      } else {
+        this.logError(`[FAIL] ${elapsed}s:`, err)
+        await this.sendMessage(chatId, "Sorry, something went wrong processing your request.")
+      }
     } finally {
+      if (timeoutId) clearTimeout(timeoutId)
       client.off("activity", activityHandler)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)
       client.off("permission_rejected", permissionHandler)
-      if (session) session.lastActivity = new Date()
-      this.markQueryDone(chatId)
+      session.lastActivity = new Date()
+      this.markQueryDone(chatId, activeQuery)
     }
   }
 

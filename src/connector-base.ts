@@ -46,6 +46,16 @@ export interface SessionStats {
 }
 
 /**
+ * Opaque handle for an in-flight query.
+ * Pass it back to markQueryDone() so stale/aborted requests cannot clear newer ones.
+ */
+export interface ActiveQueryHandle {
+  readonly sessionId: string
+  readonly id: number
+  readonly aborted: boolean
+}
+
+/**
  * Configuration for BaseConnector
  */
 export interface ConnectorConfig {
@@ -337,7 +347,8 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   protected config: ConnectorConfig
   private eventDeduplicator: EventDeduplicator
   /** Session IDs with an in-flight query -- never evict these */
-  protected activeQueries = new Map<string, { abort: () => void }>()
+  protected activeQueries = new Map<string, ActiveQueryHandle & { abort: () => void; aborted: boolean }>()
+  private nextActiveQueryId = 0
   private allowedUsers: Set<string> | null = null
   private expiryInterval: NodeJS.Timeout | null = null
   
@@ -445,27 +456,61 @@ export abstract class BaseConnector<TSession extends BaseSession> {
    * @param sessionId Session ID
    * @param abortFn Optional callback to abort the query
    */
-  protected markQueryActive(sessionId: string, abortFn: () => void = () => {}): void {
-    this.activeQueries.set(sessionId, { abort: abortFn })
+  protected markQueryActive(sessionId: string, abortFn: () => void = () => {}): ActiveQueryHandle {
+    const active = {
+      sessionId,
+      id: ++this.nextActiveQueryId,
+      aborted: false,
+      abort: abortFn,
+    }
+    this.activeQueries.set(sessionId, active)
+    return active
   }
   
   /**
    * Mark a session query as complete.
-   * Call in the finally block after prompt processing.
+   * Pass the handle returned by markQueryActive() to avoid a stale query clearing
+   * a newer active query for the same session.
    */
-  protected markQueryDone(sessionId: string): void {
-    this.activeQueries.delete(sessionId)
+  protected markQueryDone(sessionId: string, handle?: ActiveQueryHandle): void {
+    if (!handle) {
+      this.activeQueries.delete(sessionId)
+      return
+    }
+
+    const current = this.activeQueries.get(sessionId)
+    if (current?.id === handle.id) {
+      this.activeQueries.delete(sessionId)
+    }
+  }
+
+  /**
+   * Check whether a query handle was intentionally aborted.
+   */
+  protected wasQueryAborted(handle: ActiveQueryHandle): boolean {
+    return handle.aborted
   }
 
   /**
    * Abort an active query for the given session.
    */
-  protected abortQuery(sessionId: string): void {
+  protected abortQuery(sessionId: string): boolean {
     const active = this.activeQueries.get(sessionId)
-    if (active) {
+    if (!active) return false
+
+    active.aborted = true
+    try {
       active.abort()
-      this.activeQueries.delete(sessionId)
+    } catch (err) {
+      this.logError(`[ABORT] Failed to abort active query for ${sessionId}:`, err)
+    } finally {
+      const current = this.activeQueries.get(sessionId)
+      if (current?.id === active.id) {
+        this.activeQueries.delete(sessionId)
+      }
     }
+
+    return true
   }
   
   // ---------------------------------------------------------------------------

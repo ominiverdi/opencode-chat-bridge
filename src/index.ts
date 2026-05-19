@@ -36,6 +36,7 @@ export {
   type BaseSession,
   type SessionStats,
   type ConnectorConfig,
+  type ActiveQueryHandle,
 } from "./connector-base"
 
 export { ImageHandler, type ImageUploadCallback, DocHandler, type DocUploadCallback } from "./image-handler"
