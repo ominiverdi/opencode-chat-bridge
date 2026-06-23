@@ -26,19 +26,19 @@ Bridge [OpenCode](https://opencode.ai) to chat platforms with permission-based s
 
 ### Matrix
 
-<img src="images/matrix.png" width="400" alt="Matrix connector" />
+![Matrix connector](images/matrix.png)
 
 Supports **E2EE (encrypted rooms)**, image uploads, and integrates with Element and other Matrix clients. Uses native Rust crypto with persistent key storage.
 
 ### Slack
 
-<img src="images/slack.png" width="400" alt="Slack connector" />
+![Slack connector](images/slack.png)
 
 Uses Socket Mode for real-time messaging without requiring a public server. Each thread gets its own isolated session -- reply naturally without re-mentioning the bot.
 
 ### WhatsApp
 
-<img src="images/whatsapp.png" width="400" alt="WhatsApp connector" />
+![WhatsApp connector](images/whatsapp.png)
 
 Uses Baileys for WebSocket-based communication. Scan a QR code once to link.
 
@@ -48,13 +48,13 @@ Uses the Mattermost REST API v4 and WebSocket for real-time events. Zero externa
 
 ### Discord
 
-<img src="images/discord.png" width="400" alt="Discord connector" />
+![Discord connector](images/discord.png)
 
 Uses discord.js for real-time messaging. Supports @mentions and DMs.
 
 ### Web
 
-<img src="images/web_widget.png" width="400" alt="Web widget connector" />
+![Web widget connector](images/web_widget.png)
 
 Embeddable chat widget for any webpage. Two modes: **widget** (floating bubble + popup panel) and **embedded** (fills a container div). Zero external dependencies -- served as a single `<script>` tag. Real-time streaming via WebSocket.
 
@@ -144,12 +144,10 @@ OpenCode uses tools (functions) to perform actions. The `opencode.json` file con
 
 **Built-in tools:**
 
-| Tool | Purpose |
-|------|---------|
-| `read`, `glob`, `grep` | File access |
-| `edit`, `write` | File modification |
-| `bash` | Command execution |
-| `task` | Spawn sub-agents |
+- `read`, `glob`, `grep` — File access
+- `edit`, `write` — File modification
+- `bash` — Command execution
+- `task` — Spawn sub-agents
 
 For a public bot, deny these:
 
