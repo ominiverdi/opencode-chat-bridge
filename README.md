@@ -4,13 +4,14 @@ Bridge [OpenCode](https://opencode.ai) to chat platforms with permission-based s
 
 ## Recent Changes
 
-- New cross-connector `allowedUsers` allowlists for Slack, WhatsApp, Matrix, Discord, and Mattermost
+- New cross-connector `allowedUsers` allowlists for Slack, WhatsApp, Matrix, Discord, Mattermost, and Telegram
+- New Telegram connector with per-topic sessions in forum supergroups
 - Breaking change: WhatsApp renamed `allowedNumbers` to `allowedUsers` and `WHATSAPP_ALLOWED_NUMBERS` to `WHATSAPP_ALLOWED_USERS`
-- Slack, Mattermost, and Matrix support per-thread session isolation
+- Slack, Mattermost, Matrix, and Telegram support per-thread session isolation
 
 ## Table of Contents
 
-- [Connectors](#connectors) -- Matrix, Slack, WhatsApp, Mattermost, Discord, Web
+- [Connectors](#connectors) -- Matrix, Slack, WhatsApp, Mattermost, Discord, Telegram, Web
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [Permissions](#permissions)
@@ -52,6 +53,10 @@ Uses the Mattermost REST API v4 and WebSocket for real-time events. Zero externa
 
 Uses discord.js for real-time messaging. Supports @mentions and DMs.
 
+### Telegram
+
+Uses the Telegram Bot API (HTTPS) via native `fetch` and long-polling `getUpdates`. Zero external dependencies -- no webhook or public port needed. Supports @mentions, DMs, file uploads, message splitting, and per-topic sessions in forum supergroups.
+
 ### Web
 
 <img src="images/web_widget.png" width="400" alt="Web widget connector" />
@@ -77,10 +82,11 @@ bun connectors/slack.ts
 bun connectors/whatsapp.ts
 bun connectors/mattermost.ts
 bun connectors/discord.ts
+bun connectors/telegram.ts
 bun connectors/web.ts
 ```
 
-See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md) | [Web](docs/WEB_SETUP.md)
+See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md) | [Telegram](docs/TELEGRAM_SETUP.md) | [Web](docs/WEB_SETUP.md)
 
 ## Docker
 
@@ -94,6 +100,7 @@ docker pull lbecchi/opencode-chat-bridge
 docker run -e CONNECTOR=discord -e DISCORD_TOKEN=your_token lbecchi/opencode-chat-bridge
 docker run -e CONNECTOR=slack -e SLACK_BOT_TOKEN=xoxb-... -e SLACK_APP_TOKEN=xapp-... lbecchi/opencode-chat-bridge
 docker run -e CONNECTOR=matrix -e MATRIX_HOMESERVER=https://matrix.org -e MATRIX_USER_ID=@bot:matrix.org -e MATRIX_PASSWORD=... lbecchi/opencode-chat-bridge
+docker run -e CONNECTOR=telegram -e TELEGRAM_BOT_TOKEN=110201543:AAH... lbecchi/opencode-chat-bridge
 ```
 
 Or use docker-compose:
@@ -225,6 +232,7 @@ opencode-chat-bridge/
     mattermost.ts
     matrix.ts
     slack.ts
+    telegram.ts
     whatsapp.ts
     web.ts
     web-widget.js      # Embeddable client-side widget
@@ -267,7 +275,9 @@ Setup guides:
 - [Slack](docs/SLACK_SETUP.md)
 - [Mattermost](docs/MATTERMOST_SETUP.md)
 - [WhatsApp](docs/WHATSAPP_SETUP.md)
-- [Discord](docs/DISCORD_SETUP.md) | [Web](docs/WEB_SETUP.md)
+- [Discord](docs/DISCORD_SETUP.md)
+- [Telegram](docs/TELEGRAM_SETUP.md)
+- [Web](docs/WEB_SETUP.md)
 
 Reference:
 - [Configuration](docs/CONFIGURATION.md)

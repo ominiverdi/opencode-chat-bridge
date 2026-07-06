@@ -25,9 +25,12 @@ case "$CONNECTOR" in
   mattermost)
     exec bun connectors/mattermost.ts
     ;;
+  telegram)
+    exec bun connectors/telegram.ts
+    ;;
   *)
     echo "Unknown connector: $CONNECTOR"
-    echo "Valid options: discord, slack, matrix, whatsapp, mattermost"
+    echo "Valid options: discord, slack, matrix, whatsapp, mattermost, telegram"
     exit 1
     ;;
 esac

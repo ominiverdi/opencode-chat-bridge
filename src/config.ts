@@ -56,6 +56,22 @@ export interface DiscordConfig {
   allowedUsers: string[]
 }
 
+export interface TelegramConfig {
+  enabled: boolean
+  /** Bot token from @BotFather -- env: TELEGRAM_BOT_TOKEN */
+  token: string
+  /** Respond when @-mentioned in groups (in addition to trigger) */
+  respondToMentions: boolean
+  /** Per-topic sessions in forum supergroups (chatId:messageThreadId).
+   *  When false, all messages in a chat share one session. */
+  threadIsolation: boolean
+  /** Comma-separated Telegram numeric chat IDs and/or user IDs to ignore */
+  ignoreChats: string[]
+  /** Comma-separated Telegram numeric user IDs to ignore */
+  ignoreUsers: string[]
+  allowedUsers: string[]
+}
+
 
 export interface WebConfig {
   enabled: boolean
@@ -77,6 +93,7 @@ export interface ChatBridgeConfig {
   whatsapp: WhatsAppConfig
   slack: SlackConfig
   discord: DiscordConfig
+  telegram: TelegramConfig
   web: WebConfig
 }
 
@@ -131,6 +148,15 @@ const defaultConfig: ChatBridgeConfig = {
   },
   discord: {
     enabled: false,
+    allowedUsers: [],
+  },
+  telegram: {
+    enabled: false,
+    token: "",
+    respondToMentions: true,
+    threadIsolation: true,
+    ignoreChats: [],
+    ignoreUsers: [],
     allowedUsers: [],
   },
   web: {
