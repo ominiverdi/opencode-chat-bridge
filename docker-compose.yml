@@ -54,6 +54,13 @@ services:
       - MATTERMOST_TOKEN=${MATTERMOST_TOKEN}
       - MATTERMOST_TEAM=${MATTERMOST_TEAM:-}
 
+  telegram:
+    <<: *common
+    container_name: opencode-telegram
+    environment:
+      - CONNECTOR=telegram
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+
 volumes:
   sessions:
   whatsapp-auth:

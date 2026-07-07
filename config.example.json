@@ -44,7 +44,17 @@
     "enabled": false,
     "token": "{env:DISCORD_TOKEN}"
   },
-  
+
+  "telegram": {
+    "enabled": false,
+    "token": "{env:TELEGRAM_BOT_TOKEN}",
+    "respondToMentions": true,
+    "threadIsolation": true,
+    "ignoreChats": [],
+    "ignoreUsers": [],
+    "allowedUsers": []
+  },
+
   "irc": {
     "enabled": false,
     "server": "irc.libera.chat",

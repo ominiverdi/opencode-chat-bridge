@@ -4,7 +4,7 @@
 FROM oven/bun:1-debian
 
 LABEL org.opencontainers.image.source="https://github.com/ominiverdi/opencode-chat-bridge"
-LABEL org.opencontainers.image.description="Bridge OpenCode AI to chat platforms (Discord, Slack, Matrix, WhatsApp)"
+LABEL org.opencontainers.image.description="Bridge OpenCode AI to chat platforms (Discord, Slack, Matrix, WhatsApp, Mattermost, Telegram)"
 LABEL org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app
@@ -31,7 +31,7 @@ RUN mkdir -p /data/sessions /data/whatsapp-auth
 ENV SESSION_BASE_DIR=/data/sessions
 ENV WHATSAPP_AUTH_DIR=/data/whatsapp-auth
 
-# Connector to run (discord, slack, matrix, whatsapp, mattermost)
+# Connector to run (discord, slack, matrix, whatsapp, mattermost, telegram)
 ENV CONNECTOR=matrix
 
 # Entrypoint script

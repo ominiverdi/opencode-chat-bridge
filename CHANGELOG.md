@@ -8,15 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Universal user allowlists (Slack, WhatsApp, Matrix, Discord, Mattermost)** -
+- **Telegram connector** - New connector using the Telegram Bot API over HTTPS
+  with native `fetch` and long-polling `getUpdates`. Zero external runtime
+  dependencies, no public port or webhook required. Features:
+  - Trigger-prefixed messages (`!oc ...`), `@`-mentions of the bot, and
+    auto-handled DMs (no prefix required in private chats)
+  - Per-topic session isolation in forum supergroups, configurable via
+    `threadIsolation` in `chat-bridge.json` (default `true`); each topic gets
+    its own isolated OpenCode session
+  - Plain replies inside an active topic continue the conversation without
+    requiring a re-mention (mirrors the behavior of the Slack/Mattermost
+    thread-isolation feature)
+  - Native image (`sendPhoto`) and document (`sendDocument`) uploads for
+    outputs from OpenCode tools
+  - Long-message splitting at the 4096-char Telegram limit
+  - `sendChatAction` "typing..." indicator while OpenCode is processing
+  - Automatic exponential-backoff polling with `retry_after` honored for 429s
+  - `allowedUsers` / `TELEGRAM_ALLOWED_USERS` allowlist plus `ignoreChats`
+    and `ignoreUsers` blocklists
+  - `TELEGRAM_DROP_PENDING=1` to skip messages queued while offline
+- **Universal user allowlists (Slack, WhatsApp, Matrix, Discord, Mattermost, Telegram)** -
   Each connector now supports `allowedUsers` in `chat-bridge.json` plus
   per-connector `*_ALLOWED_USERS` env vars. Messages from unlisted users are
   silently dropped. Feature originated from PR #28 by @llvilanova and was
   generalized across all connectors.
-- **Thread isolation (Slack, Mattermost, Matrix)** - Sessions are now keyed per thread (`channel:threadTs`)
-  instead of per channel. Each Slack thread gets its own isolated OpenCode session.
-  Replies always stay in threads. Implicit follow-ups work without re-mentioning
-  the bot. Configurable via `threadIsolation` in chat-bridge.json (default: true).
+- **Thread isolation (Slack, Mattermost, Matrix, Telegram)** - Sessions are now keyed per thread (`channel:threadTs` for Slack/Mattermost,
+  `room:$eventId` for Matrix, or `chatId:messageThreadId` for Telegram forum
+  topics) instead of per channel. Each thread gets its own isolated OpenCode
+  session. Replies always stay in threads. Implicit follow-ups work without
+  re-mentioning the bot. Configurable via `threadIsolation` in
+  chat-bridge.json (default: true).
   Inspired by PR #2, reimplemented with proper separation of concerns.
 - **Event deduplication (all connectors)** - New `EventDeduplicator` in BaseConnector
   prevents duplicate event processing. Tracks recently seen event IDs with automatic

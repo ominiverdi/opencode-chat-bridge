@@ -35,7 +35,11 @@ opencode-chat-bridge/
 ├── connectors/           # Chat platform connectors
 │   ├── matrix.ts
 │   ├── slack.ts
-│   └── whatsapp.ts
+│   ├── whatsapp.ts
+│   ├── mattermost.ts
+│   ├── discord.ts
+│   ├── telegram.ts
+│   └── web.ts
 ├── docs/                 # Documentation
 ├── opencode.json         # Agent and permission configuration
 └── tests/                # Test scripts
@@ -52,8 +56,11 @@ We have connectors for several chat platforms, with more planned:
 | Matrix | Done | - |
 | Slack | Done | - |
 | WhatsApp | Done | - |
+| Mattermost | Done | - |
+| Discord | Done | - |
+| Telegram | Done | - |
+| Web | Done | - |
 | IRC | Planned | Low |
-| Telegram | Planned | Low |
 
 ### 2. Documentation
 

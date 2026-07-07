@@ -1,7 +1,7 @@
 {
   "name": "opencode-chat-bridge",
   "version": "0.4.0",
-  "description": "Bridge OpenCode AI to chat platforms (Matrix, Slack, WhatsApp) with secure permission-based tool access",
+  "description": "Bridge OpenCode AI to chat platforms (Matrix, Slack, WhatsApp, Mattermost, Discord, Telegram, Web) with secure permission-based tool access",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,6 +20,7 @@
     "slack": "bun connectors/slack.ts",
     "whatsapp": "bun connectors/whatsapp.ts",
     "mattermost": "bun connectors/mattermost.ts",
+    "telegram": "bun connectors/telegram.ts",
     "cli": "bun src/cli.ts",
     "web": "bun connectors/web.ts"
   },
