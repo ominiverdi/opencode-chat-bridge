@@ -60,6 +60,9 @@ services:
     environment:
       - CONNECTOR=telegram
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS:-}
+      - TELEGRAM_DROP_PENDING=${TELEGRAM_DROP_PENDING:-}
+      - TELEGRAM_TRIGGER=${TELEGRAM_TRIGGER:-}
 
 volumes:
   sessions:

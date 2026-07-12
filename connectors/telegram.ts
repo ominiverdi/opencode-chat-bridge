@@ -85,6 +85,33 @@ class TelegramApiError extends Error {
 }
 
 /**
+ * Build a TelegramApiError from a non-2xx Bot API response.
+ * Telegram can include JSON error bodies, including parameters.retry_after
+ * for HTTP 429. Preserve that value so pollLoop can honor server backoff.
+ */
+async function telegramHttpError(res: Response, context: string): Promise<TelegramApiError> {
+  const text = await res.text().catch(() => "")
+  let description = text.slice(0, 200)
+  let retryAfter: number | undefined
+  let errorCode: number | undefined
+
+  if (text) {
+    try {
+      const json = JSON.parse(text) as TelegramApiResponse<unknown>
+      description = json.description || description
+      retryAfter = json.parameters?.retry_after
+      errorCode = json.error_code
+    } catch {
+      // Keep the plain-text fallback above.
+    }
+  }
+
+  const status = errorCode || res.status
+  const suffix = description ? `: ${description}` : ""
+  return new TelegramApiError(`${context} HTTP ${res.status}${suffix}`, status, retryAfter)
+}
+
+/**
  * Issue a JSON POST to the Telegram Bot API. Throws TelegramApiError on
  * non-OK responses. Adds no runtime dependencies.
  */
@@ -96,10 +123,9 @@ async function tgApi<T = unknown>(method: string, body: Record<string, unknown> 
     body: JSON.stringify(body),
   })
 
-  // Network-level failure
+  // Telegram may return JSON errors even for non-2xx responses.
   if (!res.ok) {
-    const text = await res.text().catch(() => "")
-    throw new TelegramApiError(`Telegram API ${method} HTTP ${res.status}: ${text.slice(0, 200)}`, res.status)
+    throw await telegramHttpError(res, `Telegram API ${method}`)
   }
 
   // JSON parse errors are surfaced as exceptions from .json()
@@ -134,12 +160,15 @@ async function tgUpload<T = unknown>(
   const res = await fetch(url, { method: "POST", body: form })
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "")
-    throw new TelegramApiError(`Telegram upload ${method} HTTP ${res.status}: ${text.slice(0, 200)}`, res.status)
+    throw await telegramHttpError(res, `Telegram upload ${method}`)
   }
   const json = (await res.json()) as TelegramApiResponse<T>
   if (!json.ok) {
-    throw new TelegramApiError(json.description || `Telegram upload ${method} failed`, json.error_code)
+    throw new TelegramApiError(
+      json.description || `Telegram upload ${method} failed`,
+      json.error_code,
+      json.parameters?.retry_after
+    )
   }
   return json.result as T
 }
@@ -294,6 +323,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
   private offset = 0
   private polling = false
   private pollAbort: AbortController | null = null
+  private updateTasks = new Set<Promise<void>>()
   private reconnectAttempts = 0
   private maxReconnectAttempts = 20
   private threadIsolation: boolean
@@ -357,7 +387,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
       try {
         const updates = await tgApi<Array<{ update_id: number }>>("getUpdates", {
           timeout: 0,
-          allowed_updates: ["message", "edited_message"],
+          allowed_updates: ["message"],
         })
         if (updates.length > 0) {
           this.offset = Math.max(...updates.map((u) => u.update_id)) + 1
@@ -383,6 +413,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
       this.pollAbort = null
     }
     await this.disconnectAllSessions()
+    this.updateTasks.clear()
     this.log("Stopped.")
   }
 
@@ -478,7 +509,10 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
   private async pollOnce(signal: AbortSignal): Promise<void> {
     const body: Record<string, unknown> = {
       timeout: POLL_TIMEOUT_SECS,
-      allowed_updates: ["message", "edited_message"],
+      // Only process new messages. Edited messages are intentionally ignored
+      // because rerunning prompts after edits can duplicate or contradict an
+      // already-posted bot response.
+      allowed_updates: ["message"],
     }
     if (this.offset) body.offset = this.offset
 
@@ -490,11 +524,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     })
 
     if (!res.ok) {
-      const text = await res.text().catch(() => "")
-      throw new TelegramApiError(
-        `Telegram getUpdates HTTP ${res.status}: ${text.slice(0, 200)}`,
-        res.status
-      )
+      throw await telegramHttpError(res, "Telegram getUpdates")
     }
     const json = (await res.json()) as TelegramApiResponse<Array<Record<string, unknown>>>
     if (!json.ok) {
@@ -507,17 +537,29 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
 
     const updates = json.result || []
     for (const update of updates) {
-      // Advance offset monotonically
+      // Advance offset monotonically as soon as Telegram has delivered the
+      // update. Processing is dispatched asynchronously below so a slow
+      // OpenCode turn in one chat/topic does not block long-polling for every
+      // other chat. This keeps the same at-most-once behavior as before: once
+      // an update is received, it will not be requested again after restart.
       const id = (update as { update_id?: number }).update_id
       if (typeof id === "number" && id + 1 > this.offset) {
         this.offset = id + 1
       }
-      try {
-        await this.handleUpdate(update)
-      } catch (err) {
-        this.logError("Error processing update:", err)
-      }
+      this.dispatchUpdate(update)
     }
+  }
+
+  private dispatchUpdate(update: Record<string, unknown>): void {
+    let task: Promise<void>
+    task = this.handleUpdate(update)
+      .catch((err) => {
+        this.logError("Error processing update:", err)
+      })
+      .finally(() => {
+        this.updateTasks.delete(task)
+      })
+    this.updateTasks.add(task)
   }
 
   // ---------------------------------------------------------------------------
@@ -525,9 +567,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
   // ---------------------------------------------------------------------------
 
   private async handleUpdate(update: Record<string, unknown>): Promise<void> {
-    const message = (update.message || update.edited_message) as
-      | Record<string, unknown>
-      | undefined
+    const message = update.message as Record<string, unknown> | undefined
     if (!message) return
 
     // Skip bot-authored messages (defensive -- getUpdates typically does not

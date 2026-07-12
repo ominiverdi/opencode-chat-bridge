@@ -63,6 +63,13 @@ MATRIX_PASSWORD=your_password
 # Mattermost
 MATTERMOST_URL=https://mattermost.example.com
 MATTERMOST_TOKEN=your_bot_token
+
+# Telegram
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+# Optional: restrict to specific Telegram user IDs
+# TELEGRAM_ALLOWED_USERS=123456789,987654321
+# Optional: skip messages queued while the bot was offline
+# TELEGRAM_DROP_PENDING=1
 ```
 
 ### 3. Run Connectors
@@ -72,7 +79,7 @@ MATTERMOST_TOKEN=your_bot_token
 docker-compose up discord
 
 # Run multiple connectors
-docker-compose up discord slack matrix
+docker-compose up discord slack matrix telegram
 
 # Run in background
 docker-compose up -d discord
@@ -93,6 +100,7 @@ docker-compose down
 | `matrix` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_PASSWORD` or `MATRIX_ACCESS_TOKEN` |
 | `whatsapp` | (QR code auth - see below) |
 | `mattermost` | `MATTERMOST_URL`, `MATTERMOST_TOKEN`, `MATTERMOST_TEAM` (optional) |
+| `telegram` | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS` (optional), `TELEGRAM_DROP_PENDING` (optional), `TELEGRAM_TRIGGER` (optional) |
 
 ## WhatsApp Setup
 
