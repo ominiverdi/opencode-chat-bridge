@@ -80,6 +80,14 @@ export interface WebConfig {
   allowedOrigins: string[]  // CORS origins, ["*"] = any
   publicUrl: string         // Override for logs/snippets (e.g. behind reverse proxy)
 }
+
+export interface ACPConfig {
+  command: string
+  args: string[]
+  backendId: string
+  profileDir: string
+}
+
 export interface ChatBridgeConfig {
   botName: string
   trigger: string
@@ -88,6 +96,7 @@ export interface ChatBridgeConfig {
   defaultAgent: string | null
   modes: Record<string, string>
   streamTools: string[]  // Tools to stream output for (e.g., ["bash"]), empty = none
+  acp: ACPConfig
   matrix: MatrixConfig
   mattermost: MattermostConfig
   whatsapp: WhatsAppConfig
@@ -106,6 +115,12 @@ const defaultConfig: ChatBridgeConfig = {
   defaultAgent: null,
   modes: {},
   streamTools: ["bash"],  // Only stream bash output by default
+  acp: {
+    command: "opencode",
+    args: ["acp"],
+    backendId: "",
+    profileDir: "",
+  },
   matrix: {
     enabled: false,
     homeserver: "https://matrix.org",

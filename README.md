@@ -1,9 +1,11 @@
 # OpenCode Chat Bridge
 
-Bridge [OpenCode](https://opencode.ai) to chat platforms with permission-based security.
+Bridge ACP-compatible agents such as [OpenCode](https://opencode.ai) and [Ferrum](https://codeberg.org/ominiverdi/ferrum) to chat platforms with permission-based security.
 
 ## Recent Changes
 
+- ACP backend executable, arguments, identity, and workspace profile are configurable
+- ACP sessions persist across bridge restarts and remain isolated per chat thread
 - New cross-connector `allowedUsers` allowlists for Slack, WhatsApp, Matrix, Discord, Mattermost, and Telegram
 - New Telegram connector with per-topic sessions in forum supergroups
 - Breaking change: WhatsApp renamed `allowedNumbers` to `allowedUsers` and `WHATSAPP_ALLOWED_NUMBERS` to `WHATSAPP_ALLOWED_USERS`
@@ -14,6 +16,7 @@ Bridge [OpenCode](https://opencode.ai) to chat platforms with permission-based s
 - [Connectors](#connectors) -- Matrix, Slack, WhatsApp, Mattermost, Discord, Telegram, Web
 - [Quick Start](#quick-start)
 - [Usage](#usage)
+- [ACP Backends](#acp-backends)
 - [Permissions](#permissions)
 - [MCP Servers](#mcp-servers)
 - [AGENTS.md](#agentsmd)
@@ -87,6 +90,24 @@ bun connectors/web.ts
 ```
 
 See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md) | [Telegram](docs/TELEGRAM_SETUP.md) | [Web](docs/WEB_SETUP.md)
+
+## ACP Backends
+
+OpenCode remains the default. To use another ACP v1 stdio agent, configure its command and arguments in `chat-bridge.json`:
+
+```json
+{
+  "sessionStorePath": "./state/acp-sessions.json",
+  "acp": {
+    "command": "/usr/bin/ferrum",
+    "args": ["acp"],
+    "backendId": "ferrum",
+    "profileDir": "./profiles/ferrum-chat"
+  }
+}
+```
+
+The bridge creates a deterministic, collision-resistant workspace for every connector/thread. It copies the optional profile into that workspace, persists the ACP session ID with its canonical working directory and backend identity, resumes after restart, and removes the mapping and backend session on `/clear`. Keep credentials in the process environment, not the profile or session store. See [Configuration](docs/CONFIGURATION.md#acp-backend).
 
 ## Docker
 

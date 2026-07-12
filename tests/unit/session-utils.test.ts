@@ -16,6 +16,7 @@ import {
   extractImagePaths,
   removeImageMarkers,
   copyOpenCodeConfig,
+  copyACPProfile,
 } from "../../src/session-utils"
 
 // =============================================================================
@@ -174,12 +175,26 @@ describe("getSessionDir", () => {
     const identifier = result.split("/").pop()!
     expect(identifier).not.toContain("!")
     expect(identifier).not.toContain(":")
-    expect(identifier).toBe("_room_matrix_org")
+    expect(identifier).toMatch(/^_room_matrix_org-[a-f0-9]{12}$/)
   })
 
   test("preserves allowed characters", () => {
     const result = getSessionDir("whatsapp", "123-456_ABC")
     expect(result).toContain("123-456_ABC")
+  })
+
+  test("does not collapse distinct identifiers after sanitization", () => {
+    const first = getSessionDir("matrix", "room:a")
+    const second = getSessionDir("matrix", "room?a")
+    expect(first).not.toBe(second)
+  })
+
+  test("bounds long filesystem names with a stable hash", () => {
+    const identifier = `room:${"x".repeat(300)}`
+    const first = path.basename(getSessionDir("matrix", identifier))
+    const second = path.basename(getSessionDir("matrix", identifier))
+    expect(first).toBe(second)
+    expect(first.length).toBeLessThanOrEqual(133)
   })
 
   test("uses custom baseDir when provided", () => {
@@ -315,6 +330,34 @@ describe("copyOpenCodeConfig", () => {
     copyOpenCodeConfig(targetDir, sourceDir)
 
     expect(fs.readFileSync(targetPath, "utf-8")).toBe(newContent)
+  })
+})
+
+describe("copyACPProfile", () => {
+  const testDir = path.join(os.tmpdir(), "acp-profile-test-" + Date.now())
+  const sourceDir = path.join(testDir, "profile")
+  const targetDir = path.join(testDir, "workspace")
+
+  afterEach(() => {
+    fs.rmSync(testDir, { recursive: true, force: true })
+  })
+
+  test("copies nested policy and skill files", () => {
+    fs.mkdirSync(path.join(sourceDir, ".ferrum"), { recursive: true })
+    fs.mkdirSync(path.join(sourceDir, ".agents", "skills", "chat"), { recursive: true })
+    fs.mkdirSync(targetDir, { recursive: true })
+    fs.writeFileSync(path.join(sourceDir, ".ferrum", "config.toml"), "safety = \"low\"\n")
+    fs.writeFileSync(path.join(sourceDir, ".agents", "skills", "chat", "SKILL.md"), "# Chat\n")
+
+    copyACPProfile(targetDir, sourceDir)
+
+    expect(fs.readFileSync(path.join(targetDir, ".ferrum", "config.toml"), "utf-8")).toContain("safety")
+    expect(fs.existsSync(path.join(targetDir, ".agents", "skills", "chat", "SKILL.md"))).toBe(true)
+  })
+
+  test("rejects a missing profile directory", () => {
+    fs.mkdirSync(targetDir, { recursive: true })
+    expect(() => copyACPProfile(targetDir, sourceDir)).toThrow("ACP profile directory does not exist")
   })
 })
 

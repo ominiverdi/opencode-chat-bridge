@@ -7,9 +7,29 @@ This document describes all configuration options for opencode-chat-bridge.
 1. Create `opencode.json` with the `chat-bridge` agent
 2. Run `bun src/cli.ts`
 
-## opencode.json (Required)
+## ACP backend
 
-The `opencode.json` file defines the secure agent configuration:
+The bridge can launch any ACP v1 stdio agent. Configure the executable, argument vector, stable backend identity, and optional workspace profile in `chat-bridge.json`:
+
+```json
+{
+  "sessionStorePath": "./.opencode/chat-sessions.json",
+  "acp": {
+    "command": "/usr/local/bin/ferrum",
+    "args": ["acp"],
+    "backendId": "ferrum",
+    "profileDir": "./profiles/ferrum-chat"
+  }
+}
+```
+
+Each connector/thread receives a deterministic working directory. The profile is copied into that directory before the ACP process starts, so it can provide backend-specific policy, instructions, and skills. The bridge persists `sessionId`, canonical `cwd`, and `backendId` in `sessionStorePath`; it resumes matching sessions after restart and deletes the mapping and backend session on `/clear`.
+
+`backendId` must change when the configured backend or its incompatible session format changes. ACP processes inherit the bridge environment; keep credentials outside profiles and the session store.
+
+## opencode.json (OpenCode backend)
+
+The `opencode.json` file defines the secure OpenCode agent configuration:
 
 ```json
 {

@@ -7,7 +7,10 @@
  */
 
 import fs from "fs"
+import { createHash } from "crypto"
 import { ACPClient, type OpenCodeCommand } from "./acp-client"
+import { getConfig, type ACPConfig } from "./config"
+import { ACPSessionStore } from "./session-store"
 import { 
   getSessionDir, 
   ensureSessionDir, 
@@ -15,6 +18,7 @@ import {
   estimateTokens,
   getSessionStorageInfo,
   copyOpenCodeConfig,
+  copyACPProfile,
 } from "./session-utils"
 
 // =============================================================================
@@ -351,12 +355,17 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   private nextActiveQueryId = 0
   private allowedUsers: Set<string> | null = null
   private expiryInterval: NodeJS.Timeout | null = null
+  private acpConfig: ACPConfig
+  private acpSessionStore: ACPSessionStore
   
   constructor(config: ConnectorConfig) {
     this.sessionManager = new SessionManager<TSession>()
     this.rateLimiter = new RateLimiter()
     this.config = config
     this.eventDeduplicator = new EventDeduplicator()
+    const globalConfig = getConfig()
+    this.acpConfig = globalConfig.acp
+    this.acpSessionStore = new ACPSessionStore(globalConfig.sessionStorePath)
     
     // Apply SESSION_RETENTION_MINS from env if not set in config
     if (this.config.sessionRetentionMins === undefined) {
@@ -532,12 +541,37 @@ export abstract class BaseConnector<TSession extends BaseSession> {
       const sessionDir = getSessionDir(this.config.connector, id)
       ensureSessionDir(sessionDir)
       copyOpenCodeConfig(sessionDir)  // Apply security permissions
-      
-      const client = new ACPClient({ cwd: sessionDir })
+      copyACPProfile(sessionDir, this.acpConfig.profileDir)
+      const canonicalDir = fs.realpathSync(sessionDir)
+      const client = this.createACPClient(canonicalDir)
       
       try {
         await client.connect()
-        await client.createSession()
+        const stored = this.acpSessionStore.get(this.config.connector, id)
+        const canResume = stored &&
+          stored.cwd === canonicalDir &&
+          stored.backendId === this.backendId
+
+        if (canResume) {
+          try {
+            await client.resumeSession(stored.sessionId)
+            this.log(`Resumed session: ${id}`)
+          } catch (err) {
+            this.logError(`Failed to resume session ${id}; creating a fresh session:`, err)
+            await client.createSession()
+          }
+        } else {
+          await client.createSession()
+        }
+
+        await this.acpSessionStore.set({
+          connector: this.config.connector,
+          threadId: id,
+          sessionId: client.currentSessionId!,
+          cwd: canonicalDir,
+          backendId: this.backendId,
+          updatedAt: new Date().toISOString(),
+        })
         session = createSessionData(client)
         this.sessionManager.set(id, session)
         this.log(`Created session: ${id}`)
@@ -551,6 +585,23 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     return session
   }
   
+  private get backendId(): string {
+    if (this.acpConfig.backendId) return this.acpConfig.backendId
+    const commandIdentity = JSON.stringify([
+      this.acpConfig.command,
+      ...this.acpConfig.args,
+    ])
+    return `command-sha256:${createHash("sha256").update(commandIdentity).digest("hex")}`
+  }
+
+  private createACPClient(cwd: string): ACPClient {
+    return new ACPClient({
+      cwd,
+      command: this.acpConfig.command,
+      args: this.acpConfig.args,
+    })
+  }
+
   /**
    * Create a new session object with default values
    * Helper for subclasses to use with getOrCreateSession
@@ -761,11 +812,41 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     sendFn: (text: string) => Promise<void>
   ): Promise<boolean> {
     const session = this.sessionManager.get(id)
+    const stored = this.acpSessionStore.get(this.config.connector, id)
+
     if (session) {
+      try {
+        await session.client.deleteSession()
+      } catch (err) {
+        this.logError(`Failed to delete backend session ${id}:`, err)
+      }
       try {
         await session.client.disconnect()
       } catch {}
       this.sessionManager.delete(id)
+      await this.acpSessionStore.delete(this.config.connector, id)
+      await sendFn(CommandHandler.formatSessionClearedMessage())
+    } else if (stored) {
+      const sessionDir = getSessionDir(this.config.connector, id)
+      ensureSessionDir(sessionDir)
+      copyOpenCodeConfig(sessionDir)
+      copyACPProfile(sessionDir, this.acpConfig.profileDir)
+      const expectedDir = fs.realpathSync(sessionDir)
+      if (stored.cwd === expectedDir && stored.backendId === this.backendId) {
+        const client = this.createACPClient(expectedDir)
+        try {
+          await client.connect()
+          await client.resumeSession(stored.sessionId)
+          await client.deleteSession()
+        } catch (err) {
+          this.logError(`Failed to delete persisted backend session ${id}:`, err)
+        } finally {
+          try {
+            await client.disconnect()
+          } catch {}
+        }
+      }
+      await this.acpSessionStore.delete(this.config.connector, id)
       await sendFn(CommandHandler.formatSessionClearedMessage())
     } else {
       await sendFn(CommandHandler.formatNoSessionMessage())

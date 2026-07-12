@@ -8,7 +8,7 @@
  */
 
 export { ACPClient, type ACPClientOptions, type MCPServer, type SessionUpdate, type ActivityEvent, type ImageContent, type OpenCodeCommand } from "./acp-client"
-export { getConfig, loadConfig, clearConfigCache, type ChatBridgeConfig, type MatrixConfig, type MattermostConfig, type WhatsAppConfig, type SlackConfig, type DiscordConfig, type TelegramConfig } from "./config"
+export { getConfig, loadConfig, clearConfigCache, type ChatBridgeConfig, type ACPConfig, type MatrixConfig, type MattermostConfig, type WhatsAppConfig, type SlackConfig, type DiscordConfig, type TelegramConfig } from "./config"
 export { 
   getSessionDir, 
   ensureSessionDir, 
@@ -22,6 +22,7 @@ export {
   removeDocMarkers,
   sanitizeServerPaths,
   copyOpenCodeConfig,
+  copyACPProfile,
   type SessionConfig 
 } from "./session-utils"
 
@@ -38,5 +39,7 @@ export {
   type ConnectorConfig,
   type ActiveQueryHandle,
 } from "./connector-base"
+
+export { ACPSessionStore, type StoredACPSession } from "./session-store"
 
 export { ImageHandler, type ImageUploadCallback, DocHandler, type DocUploadCallback } from "./image-handler"

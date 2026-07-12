@@ -12,6 +12,7 @@
 import fs from "fs"
 import path from "path"
 import os from "os"
+import { createHash } from "crypto"
 
 export interface SessionConfig {
   baseDir?: string
@@ -50,10 +51,16 @@ export function getSessionDir(
   const baseDir = config.baseDir || getSessionBaseDir()
   const sessionRoot = path.join(baseDir, connector)
   
-  // Sanitize identifier for filesystem (remove special chars)
+  // Preserve simple existing paths. Add a stable hash whenever sanitization or
+  // truncation is needed so distinct thread IDs cannot collapse to one cwd.
   const sanitized = identifier.replace(/[^a-zA-Z0-9_-]/g, "_")
+  const prefix = sanitized.slice(0, 120) || "thread"
+  const needsHash = sanitized !== identifier || sanitized.length > prefix.length
+  const leaf = needsHash
+    ? `${prefix}-${createHash("sha256").update(identifier).digest("hex").slice(0, 12)}`
+    : prefix
   
-  return path.join(sessionRoot, sanitized)
+  return path.join(sessionRoot, leaf)
 }
 
 /**
@@ -135,6 +142,25 @@ export function copyOpenCodeConfig(sessionDir: string, projectDir?: string): voi
   
   // Symlink .opencode directory for skills, tools, commands
   symlinkDir(sourceDir, sessionDir, ".opencode")
+}
+
+/**
+ * Copy a backend-neutral ACP profile into a session workspace.
+ * The profile may contain AGENTS.md, .ferrum/config.toml, and skill directories.
+ */
+export function copyACPProfile(sessionDir: string, profileDir?: string): void {
+  if (!profileDir) return
+
+  const source = path.resolve(profileDir)
+  if (!fs.existsSync(source) || !fs.statSync(source).isDirectory()) {
+    throw new Error(`ACP profile directory does not exist: ${source}`)
+  }
+
+  fs.cpSync(source, sessionDir, {
+    recursive: true,
+    force: true,
+    dereference: false,
+  })
 }
 
 /**

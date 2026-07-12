@@ -44,13 +44,15 @@ function findOpencode(): string {
 export interface ACPClientOptions {
   cwd?: string
   mcpServers?: MCPServer[]
+  command?: string
+  args?: string[]
 }
 
 export interface MCPServer {
   name: string
   command: string
   args: string[]
-  env?: string[]
+  env?: Array<{ name: string; value: string }>
 }
 
 export interface SessionUpdate {
@@ -91,6 +93,8 @@ export class ACPClient extends EventEmitter {
   private sessionId: string | null = null
   private cwd: string
   private mcpServers: MCPServer[]
+  private command: string
+  private args: string[]
   private _availableCommands: OpenCodeCommand[] = []
   // Track cumulative output per tool call to compute actual deltas
   private toolOutputSeen = new Map<string, number>()
@@ -101,6 +105,10 @@ export class ACPClient extends EventEmitter {
     super()
     this.cwd = options.cwd || process.cwd()
     this.mcpServers = options.mcpServers || []
+    this.command = !options.command || options.command === "opencode"
+      ? findOpencode()
+      : options.command
+    this.args = options.args || ["acp"]
   }
   
   /**
@@ -109,6 +117,10 @@ export class ACPClient extends EventEmitter {
    */
   get availableCommands(): OpenCodeCommand[] {
     return this._availableCommands
+  }
+
+  get currentSessionId(): string | null {
+    return this.sessionId
   }
   
   /**
@@ -120,10 +132,9 @@ export class ACPClient extends EventEmitter {
   }
   
   async connect(): Promise<void> {
-    const opencodePath = findOpencode()
-    console.log(`[ACP] Using opencode at: ${opencodePath}`)
+    console.log(`[ACP] Starting executable: ${this.command} (${this.args.length} argument(s))`)
     
-    this.acp = spawn(opencodePath, ["acp"], {
+    this.acp = spawn(this.command, this.args, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: this.cwd,
     })
@@ -132,12 +143,12 @@ export class ACPClient extends EventEmitter {
     this.acp.stderr!.on("data", (data) => {
       const text = data.toString()
       if (!text.includes("Error handling")) {
-        this.emit("error", text)
+        this.reportError(text)
       }
     })
     this.acp.on("error", (err) => {
       this.rejectPending(err instanceof Error ? err : new Error(String(err)))
-      this.emit("error", err)
+      this.reportError(err)
     })
     this.acp.on("close", (code) => {
       this.rejectPending(new Error(`ACP process exited${code === null ? "" : ` with code ${code}`}`))
@@ -178,6 +189,47 @@ export class ACPClient extends EventEmitter {
     await this.sleep(1000)
     
     return this.sessionId!
+  }
+
+  async resumeSession(sessionId: string): Promise<string> {
+    const result = await this.send("session/resume", {
+      sessionId,
+      cwd: this.cwd,
+      mcpServers: this.mcpServers,
+    })
+
+    if (result.error) {
+      throw new Error(`Session resume failed: ${JSON.stringify(result.error)}`)
+    }
+
+    this.sessionId = sessionId
+    return sessionId
+  }
+
+  cancel(): void {
+    if (!this.sessionId || !this.acp?.stdin || this.acp.stdin.destroyed) return
+    this.acp.stdin.write(JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/cancel",
+      params: { sessionId: this.sessionId },
+    }) + "\n")
+  }
+
+  async deleteSession(): Promise<void> {
+    if (!this.sessionId) return
+    const sessionId = this.sessionId
+
+    const closeResult = await this.send("session/close", { sessionId })
+    if (closeResult.error) {
+      throw new Error(`Session close failed: ${JSON.stringify(closeResult.error)}`)
+    }
+
+    const deleteResult = await this.send("session/delete", { sessionId })
+    if (deleteResult.error) {
+      throw new Error(`Session deletion failed: ${JSON.stringify(deleteResult.error)}`)
+    }
+
+    this.sessionId = null
   }
   
   async prompt(text: string, options: { agent?: string } = {}): Promise<string> {
@@ -264,6 +316,14 @@ export class ACPClient extends EventEmitter {
         }
       })
     })
+  }
+
+  private reportError(err: unknown): void {
+    if (this.listenerCount("error") > 0) {
+      this.emit("error", err)
+    } else {
+      console.error("[ACP]", err)
+    }
   }
 
   private rejectPending(err: Error): void {
@@ -407,10 +467,33 @@ export class ACPClient extends EventEmitter {
         break
         
       case "tool_call":
-        // Initial tool call - just note it's pending
-        // Args come in tool_call_update with status: "in_progress"
         const toolNameInit = update.title || update.name || "unknown"
-        this.emit("tool", { name: toolNameInit, status: "pending", args: {} })
+        let toolArgsInit = update.rawInput || {}
+        if (typeof toolArgsInit === "string") {
+          try {
+            toolArgsInit = JSON.parse(toolArgsInit)
+          } catch {
+            toolArgsInit = { raw: toolArgsInit }
+          }
+        }
+        this.emit("update", {
+          type: "tool_call",
+          toolName: toolNameInit,
+          toolArgs: toolArgsInit,
+        })
+        this.emit("tool", { name: toolNameInit, status: "pending", args: toolArgsInit })
+        const initialToolCallId = update.toolCallId || toolNameInit
+        if (!this.toolActivityEmitted.has(initialToolCallId)) {
+          this.toolActivityEmitted.add(initialToolCallId)
+          const initialActivity = this.formatToolActivity(toolNameInit, toolArgsInit, "start")
+          this.emit("activity", {
+            type: "tool_start",
+            tool: initialActivity.toolName,
+            message: `${initialActivity.description} [${initialActivity.toolName}]`,
+            description: initialActivity.description,
+            details: toolArgsInit,
+          })
+        }
         break
         
       case "tool_call_update":
