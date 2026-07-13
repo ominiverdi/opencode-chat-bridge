@@ -378,10 +378,14 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
 
     this.log(`[MSG] ${message.sender} in ${context.sessionId}: ${body}`)
 
+    await this.stopMirrorForUserActivity(context.sessionId, query, async (text) => {
+      await this.sendNoticeReply(context, text)
+    })
+
     // Handle commands
     if (query.startsWith("/")) {
       const cmdName = query.slice(1).split(" ")[0].toLowerCase()
-      const bridgeCommands = ["status", "clear", "reset", "help"]
+      const bridgeCommands = ["status", "clear", "reset", "help", "h", "p", "projects", "s", "sessions", "m", "mirror", "r", "reload", "d", "detach"]
       if (bridgeCommands.includes(cmdName)) {
         const openCodeCommands = existingSession?.client.availableCommands || []
         await this.handleCommand(context.sessionId, query, async (text) => {
@@ -562,6 +566,10 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
       if (session) session.lastActivity = new Date()
       this.markQueryDone(context.sessionId)
     }
+  }
+
+  protected createManagedSession(client: ACPClient): RoomSession {
+    return this.createSession(client)
   }
 
   private createSession(client: ACPClient): RoomSession {

@@ -320,6 +320,10 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       if (!match) return
       const query = match[1].trim()
 
+      await this.stopMirrorForUserActivity(sessionId, query, async (text) => {
+        await this.sendReply(client, context, text)
+      })
+
       // Handle commands
       if (query.startsWith("/")) {
         await this.handleCommand(sessionId, query, async (text) => {
@@ -378,6 +382,9 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
 
       this.log(`[THREAD] ${context.userId} in ${sessionId}: ${context.text}`)
       this.touchSessionActivity(sessionId)
+      await this.stopMirrorForUserActivity(sessionId, context.text.trim(), async (text) => {
+        await this.sendReply(client, context, text)
+      })
       if (!this.checkRateLimit(context.userId)) return
       await this.processQuery(context, sessionId, context.text.trim(), client)
     })

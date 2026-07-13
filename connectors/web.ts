@@ -290,6 +290,10 @@ class WebConnector extends BaseConnector<WebSession> {
     const text = msg.text.trim()
     if (!text) return
 
+    await this.stopMirrorForUserActivity(clientId, text, async (resp) => {
+      this.wsSend(clientId, { type: "response", text: resp })
+    })
+
     // Rate limit
     if (!this.checkRateLimit(clientId)) {
       this.wsSend(clientId, {

@@ -495,10 +495,14 @@ export class MattermostConnector extends BaseConnector<ChannelSession> {
 
       this.log(`[MSG] ${senderName} in ${context.sessionId}: ${message}`)
 
+      await this.stopMirrorForUserActivity(context.sessionId, query, async (text) => {
+        await this.sendReply(context, text)
+      })
+
       // Handle commands
       if (query.startsWith("/")) {
         const cmdName = query.slice(1).split(" ")[0].toLowerCase()
-        const bridgeCommands = ["status", "clear", "reset", "help"]
+        const bridgeCommands = ["status", "clear", "reset", "help", "h", "p", "projects", "s", "sessions", "m", "mirror", "r", "reload", "d", "detach"]
         if (bridgeCommands.includes(cmdName)) {
           const openCodeCommands = existingSession?.client.availableCommands || []
           await this.handleCommand(context.sessionId, query, async (text) => {

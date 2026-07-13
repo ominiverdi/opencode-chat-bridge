@@ -7,8 +7,9 @@
  */
 
 import fs from "fs"
+import path from "path"
 import { createHash } from "crypto"
-import { ACPClient, type OpenCodeCommand } from "./acp-client"
+import { ACPClient, type ACPSessionInfo, type LoadedSessionHistoryItem, type OpenCodeCommand } from "./acp-client"
 import { getConfig, type ACPConfig } from "./config"
 import { ACPSessionStore } from "./session-store"
 import { 
@@ -47,6 +48,20 @@ export interface SessionStats {
   outputTokens: number
   totalTokens: number
   contextPercent: string
+}
+
+interface ProjectPickerItem {
+  cwd: string
+  name: string
+  sessionCount: number
+}
+
+interface MirrorState {
+  session: ACPSessionInfo
+  timer: ReturnType<typeof setInterval>
+  lastFingerprint: string
+  sendFn: (text: string) => Promise<void>
+  busy: boolean
 }
 
 /**
@@ -270,13 +285,24 @@ export class CommandHandler {
   static formatHelpMessage(
     trigger: string, 
     botName: string, 
-    openCodeCommands?: { name: string; description: string }[]
+    openCodeCommands?: { name: string; description: string }[],
+    sessionPickerEnabled = false
   ): string {
     let msg = `${botName} - OpenCode Chat Bridge\n\n`
     msg += `Bridge commands:\n`
-    msg += `- /status - Show session info\n`
-    msg += `- /clear or /reset - Clear session history\n`
-    msg += `- /help - Show this help\n`
+    msg += `- /h or /help - Show this help\n`
+    msg += `- /status - Show current chat session info\n`
+    if (sessionPickerEnabled) {
+      msg += `- /p - List saved projects/workdirs from the ACP backend\n`
+      msg += `- /p <n> - Select a project/workdir\n`
+      msg += `- /s - List saved sessions in the selected project\n`
+      msg += `- /s <n> - Switch to a saved session and show recent history\n`
+      msg += `- /m <n> - Mirror a saved session read-only, checking every ${Math.max(10, Number(getConfig().sessionPicker.mirrorIntervalSeconds) || 60)}s\n`
+      msg += `- /m - Stop mirror mode\n`
+      msg += `- /r - Reload current session and show recent history\n`
+      msg += `- /d - Detach from the current session without deleting it\n`
+    }
+    msg += `- /clear or /reset - Delete current session history\n`
     
     if (openCodeCommands && openCodeCommands.length > 0) {
       msg += `\nOpenCode commands:\n`
@@ -356,7 +382,12 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   private allowedUsers: Set<string> | null = null
   private expiryInterval: NodeJS.Timeout | null = null
   private acpConfig: ACPConfig
+  private sessionPickerConfig = getConfig().sessionPicker
   private acpSessionStore: ACPSessionStore
+  private pickerProjects = new Map<string, ProjectPickerItem[]>()
+  private selectedProjectCwd = new Map<string, string>()
+  private pickerSessions = new Map<string, ACPSessionInfo[]>()
+  private mirrors = new Map<string, MirrorState>()
   
   constructor(config: ConnectorConfig) {
     this.sessionManager = new SessionManager<TSession>()
@@ -365,6 +396,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     this.eventDeduplicator = new EventDeduplicator()
     const globalConfig = getConfig()
     this.acpConfig = globalConfig.acp
+    this.sessionPickerConfig = globalConfig.sessionPicker
     this.acpSessionStore = new ACPSessionStore(globalConfig.sessionStorePath)
     
     // Apply SESSION_RETENTION_MINS from env if not set in config
@@ -420,6 +452,21 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     if (this.config.sessionRetentionMins) {
       console.log(`  Session expiry: ${this.config.sessionRetentionMins} min (inactivity)`)
     }
+  }
+
+  protected isSessionPickerEnabled(): boolean {
+    if (!this.sessionPickerConfig.enabled) return false
+    const connectors = this.sessionPickerConfig.connectors || []
+    return connectors.length === 0 || connectors.includes(this.config.connector)
+  }
+
+  protected isSessionPickerCommandName(name: string): boolean {
+    return ["p", "projects", "s", "sessions", "m", "mirror", "r", "reload", "d", "detach"].includes(name)
+  }
+
+  protected getMirrorIntervalMs(): number {
+    const seconds = Number(this.sessionPickerConfig.mirrorIntervalSeconds) || 60
+    return Math.max(10, seconds) * 1000
   }
 
   protected isUserAllowed(userId: string): boolean {
@@ -616,6 +663,15 @@ export abstract class BaseConnector<TSession extends BaseSession> {
       outputChars: 0,
     }
   }
+
+  /**
+   * Create a connector-specific session object for sessions opened by bridge
+   * commands such as /s <n>. Connectors with extra per-session fields should
+   * override this method.
+   */
+  protected createManagedSession(client: ACPClient): TSession {
+    return this.createBaseSession(client) as TSession
+  }
   
   /**
    * Cleanup old session directories on startup (days-based).
@@ -762,8 +818,10 @@ export abstract class BaseConnector<TSession extends BaseSession> {
       forwardToOpenCode?: (command: string) => Promise<void>
     }
   ): Promise<boolean> {
-    const cmd = command.toLowerCase().trim()
+    const original = command.trim()
+    const cmd = original.toLowerCase()
     const cmdName = cmd.replace(/^\//, "").split(" ")[0]  // Extract command name without /
+    const args = original.split(/\s+/).slice(1)
     
     // Bridge-local commands
     if (cmd === "/status") {
@@ -774,8 +832,33 @@ export abstract class BaseConnector<TSession extends BaseSession> {
       return await this.handleClearCommand(id, sendFn)
     }
     
-    if (cmd === "/help") {
+    if (cmd === "/help" || cmd === "/h") {
       return await this.handleHelpCommand(sendFn, options?.openCodeCommands)
+    }
+
+    if (this.isSessionPickerCommandName(cmdName) && !this.isSessionPickerEnabled()) {
+      await sendFn(CommandHandler.formatUnknownCommandMessage(command))
+      return true
+    }
+
+    if (cmdName === "p" || cmdName === "projects") {
+      return await this.handleProjectCommand(id, args, sendFn)
+    }
+
+    if (cmdName === "s" || cmdName === "sessions") {
+      return await this.handleSessionPickerCommand(id, args, sendFn)
+    }
+
+    if (cmdName === "m" || cmdName === "mirror") {
+      return await this.handleMirrorCommand(id, args, sendFn)
+    }
+
+    if (cmdName === "r" || cmdName === "reload") {
+      return await this.handleReloadCommand(id, sendFn)
+    }
+
+    if (cmdName === "d" || cmdName === "detach") {
+      return await this.handleDetachCommand(id, sendFn)
     }
     
     // Check if this is an OpenCode command
@@ -792,6 +875,533 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     return true
   }
   
+  private async handleProjectCommand(
+    id: string,
+    args: string[],
+    sendFn: (text: string) => Promise<void>
+  ): Promise<boolean> {
+    if (args.length > 0) {
+      const index = Number.parseInt(args[0], 10)
+      const projects = this.pickerProjects.get(id) || []
+      if (!Number.isFinite(index) || index < 1 || index > projects.length) {
+        await sendFn("Unknown project number. Run /p again.")
+        return true
+      }
+
+      const project = projects[index - 1]
+      this.selectedProjectCwd.set(id, project.cwd)
+      this.pickerSessions.delete(id)
+      const sessionsMessage = await this.buildSessionListMessage(id, project.cwd)
+      await sendFn(
+        `Selected project: ${project.name}\n` +
+        `${project.cwd}\n\n` +
+        sessionsMessage
+      )
+      return true
+    }
+
+    const client = this.createACPClient(process.cwd())
+    try {
+      await client.connect()
+      const sessions = await client.listAllSessions()
+      if (sessions.length === 0) {
+        await sendFn("No saved ACP sessions found.")
+        return true
+      }
+
+      const grouped = new Map<string, number>()
+      for (const session of sessions) {
+        if (!session.cwd) continue
+        grouped.set(session.cwd, (grouped.get(session.cwd) || 0) + 1)
+      }
+
+      const projects = Array.from(grouped.entries())
+        .map(([cwd, sessionCount]) => ({
+          cwd,
+          name: path.basename(cwd) || cwd,
+          sessionCount,
+        }))
+        .sort((a, b) => b.sessionCount - a.sessionCount || a.cwd.localeCompare(b.cwd))
+        .slice(0, 20)
+
+      this.pickerProjects.set(id, projects)
+
+      let message = "Projects:\n"
+      projects.forEach((project, i) => {
+        message += `${i + 1}. ${project.name}\n`
+        message += `   ${project.cwd}\n`
+        message += `   ${project.sessionCount} session${project.sessionCount === 1 ? "" : "s"}\n`
+      })
+      message += "\nUse /p <number> to select a project."
+      await sendFn(message)
+    } catch (err) {
+      this.logError("Failed to list ACP projects:", err)
+      await sendFn("Could not list saved ACP sessions.")
+    } finally {
+      try {
+        await client.disconnect()
+      } catch {}
+    }
+
+    return true
+  }
+
+  private async handleSessionPickerCommand(
+    id: string,
+    args: string[],
+    sendFn: (text: string) => Promise<void>
+  ): Promise<boolean> {
+    const selectedCwd = this.selectedProjectCwd.get(id)
+    if (!selectedCwd) {
+      await sendFn("No project selected. Run /p first, then /p <number>.")
+      return true
+    }
+
+    if (args.length > 0) {
+      if (this.isQueryActive(id)) {
+        await sendFn("A request is still running in this thread. Wait for it to finish, then run /s <number> again.")
+        return true
+      }
+
+      const index = Number.parseInt(args[0], 10)
+      const sessions = this.pickerSessions.get(id) || []
+      if (!Number.isFinite(index) || index < 1 || index > sessions.length) {
+        await sendFn("Unknown session number. Run /s again.")
+        return true
+      }
+
+      const selected = sessions[index - 1]
+      const existing = this.sessionManager.get(id)
+      const stored = this.acpSessionStore.get(this.config.connector, id)
+      const isReloadingCurrent = stored?.sessionId === selected.sessionId && stored?.cwd === selected.cwd
+
+      if (existing && isReloadingCurrent) {
+        return await this.handleReloadCommand(id, sendFn)
+      }
+
+      const client = this.createACPClient(selected.cwd)
+      try {
+        await client.connect()
+        let history: LoadedSessionHistoryItem[] = []
+        let historyUnavailable = false
+        try {
+          history = await client.loadSession(selected.sessionId)
+        } catch (err) {
+          this.logError(`Failed to load selected session history ${id}; trying resume:`, err)
+          historyUnavailable = true
+          await client.resumeSession(selected.sessionId)
+        }
+
+        if (existing) {
+          try {
+            await existing.client.closeSession()
+          } catch (err) {
+            this.logError(`Failed to close previous session ${id}:`, err)
+          }
+          try {
+            await existing.client.disconnect()
+          } catch {}
+          this.sessionManager.delete(id)
+        }
+
+        const session = this.createManagedSession(client)
+        this.sessionManager.set(id, session)
+        await this.acpSessionStore.set({
+          connector: this.config.connector,
+          threadId: id,
+          sessionId: selected.sessionId,
+          cwd: selected.cwd,
+          backendId: this.backendId,
+          updatedAt: new Date().toISOString(),
+        })
+
+        await sendFn(this.formatSessionAttachedMessage(selected, history, historyUnavailable))
+      } catch (err) {
+        this.logError(`Failed to load selected session ${id}:`, err)
+        try {
+          await client.disconnect()
+        } catch {}
+        const keepCurrent = existing ? " Keeping the current session attached." : ""
+        await sendFn(`Could not load selected session.${keepCurrent}`)
+      }
+
+      return true
+    }
+
+    await sendFn(await this.buildSessionListMessage(id, selectedCwd))
+    return true
+  }
+
+  private async buildSessionListMessage(id: string, selectedCwd: string): Promise<string> {
+    const client = this.createACPClient(selectedCwd)
+    try {
+      await client.connect()
+      const sessions = (await client.listAllSessions(selectedCwd)).slice(0, 20)
+      if (sessions.length === 0) {
+        return "No saved sessions found for this project."
+      }
+
+      this.pickerSessions.set(id, sessions)
+      const name = path.basename(selectedCwd) || selectedCwd
+      let message = `Sessions in ${name}:\n`
+      sessions.forEach((session, i) => {
+        message += `${i + 1}. ${session.title || "(untitled session)"}\n`
+        message += `   ${session.sessionId.slice(0, 8)}\n`
+      })
+      message += "\nUse /s <number> to switch interactively."
+      message += "\nUse /m <number> to mirror read-only."
+      return message
+    } catch (err) {
+      this.logError("Failed to list ACP sessions:", err)
+      return "Could not list saved sessions for this project."
+    } finally {
+      try {
+        await client.disconnect()
+      } catch {}
+    }
+  }
+
+  private async handleMirrorCommand(
+    id: string,
+    args: string[],
+    sendFn: (text: string) => Promise<void>
+  ): Promise<boolean> {
+    if (args.length === 0) {
+      if (this.stopMirror(id)) {
+        await sendFn("Mirror mode stopped.")
+      } else {
+        await sendFn("Mirror mode is not running.")
+      }
+      return true
+    }
+
+    const selectedCwd = this.selectedProjectCwd.get(id)
+    if (!selectedCwd) {
+      await sendFn("No project selected. Run /p first, then /p <number>.")
+      return true
+    }
+
+    const index = Number.parseInt(args[0], 10)
+    const sessions = this.pickerSessions.get(id) || []
+    if (!Number.isFinite(index) || index < 1 || index > sessions.length) {
+      await sendFn("Unknown session number. Run /s again.")
+      return true
+    }
+
+    const session = sessions[index - 1]
+    const snapshot = await this.loadMirrorSnapshot(session)
+    if (!snapshot.ok) {
+      await sendFn("Mirror mode not started: session history could not be loaded.")
+      return true
+    }
+
+    this.stopMirror(id)
+    const state: MirrorState = {
+      session,
+      timer: setInterval(() => {
+        this.pollMirror(id).catch((err) => this.logError(`Mirror poll failed for ${id}:`, err))
+      }, this.getMirrorIntervalMs()),
+      lastFingerprint: snapshot.fingerprint,
+      sendFn,
+      busy: false,
+    }
+    this.mirrors.set(id, state)
+
+    await sendFn(
+      `Mirror mode on: ${session.title || "(untitled session)"}\n` +
+      `Project: ${session.cwd}\n` +
+      `Session: ${session.sessionId}\n\n` +
+      `Checking every ${Math.round(this.getMirrorIntervalMs() / 1000)}s. Any message here stops mirroring.\n\n` +
+      this.formatMirrorTail(snapshot.history)
+    )
+    return true
+  }
+
+  protected async stopMirrorForUserActivity(
+    id: string,
+    text: string,
+    sendFn: (text: string) => Promise<void>
+  ): Promise<void> {
+    const trimmed = text.trim().toLowerCase()
+    if (!this.mirrors.has(id)) return
+    if (trimmed === "/m" || trimmed === "/mirror") return
+    if (this.stopMirror(id)) {
+      await sendFn("Mirror mode stopped.")
+    }
+  }
+
+  private stopMirror(id: string): boolean {
+    const state = this.mirrors.get(id)
+    if (!state) return false
+    clearInterval(state.timer)
+    this.mirrors.delete(id)
+    return true
+  }
+
+  private async pollMirror(id: string): Promise<void> {
+    const state = this.mirrors.get(id)
+    if (!state || state.busy) return
+    state.busy = true
+    try {
+      const snapshot = await this.loadMirrorSnapshot(state.session)
+      if (!snapshot.ok) {
+        this.stopMirror(id)
+        await state.sendFn("Mirror mode stopped: session history could not be loaded.")
+        return
+      }
+      if (snapshot.fingerprint === state.lastFingerprint) return
+      const previous = state.lastFingerprint
+      state.lastFingerprint = snapshot.fingerprint
+      const update = this.formatMirrorUpdate(snapshot.history)
+      if (update && previous) await state.sendFn(update)
+    } finally {
+      state.busy = false
+    }
+  }
+
+  private async loadMirrorSnapshot(session: ACPSessionInfo): Promise<{ ok: true; fingerprint: string; history: LoadedSessionHistoryItem[] } | { ok: false }> {
+    const client = this.createACPClient(session.cwd)
+    try {
+      await client.connect()
+      const history = await client.loadSession(session.sessionId)
+      const normalized = history
+        .map(item => `${item.role}:${item.content.trim()}`)
+        .filter(Boolean)
+        .join("\n---\n")
+      return { ok: true, fingerprint: createHash("sha256").update(normalized).digest("hex"), history }
+    } catch (err) {
+      this.logError(`Failed to load mirror snapshot for ${session.sessionId}:`, err)
+      return { ok: false }
+    } finally {
+      try {
+        await client.closeSession()
+      } catch {}
+      try {
+        await client.disconnect()
+      } catch {}
+    }
+  }
+
+  private formatMirrorUpdate(history: LoadedSessionHistoryItem[]): string {
+    return this.formatMirrorHistoryBlock("Mirror update", history)
+  }
+
+  private formatMirrorTail(history: LoadedSessionHistoryItem[]): string {
+    return this.formatMirrorHistoryBlock("Current tail", history) || "Current tail: no conversational messages found."
+  }
+
+  private formatMirrorHistoryBlock(title: string, history: LoadedSessionHistoryItem[]): string {
+    const useful = this.compactMirrorHistory(history).slice(-6)
+
+    if (useful.length === 0) return ""
+
+    let message = `${title}:\n`
+    for (const item of useful) {
+      const label = item.role === "user" ? "User" : item.role === "assistant" ? "Assistant" : "Tool"
+      message += `${label}: ${this.truncateMirrorItem(item.role, item.content)}\n`
+    }
+    if (message.length > 4000) message = message.slice(0, 3900).trimEnd() + "\n... [mirror update truncated]"
+    return message
+  }
+
+  private async handleReloadCommand(
+    id: string,
+    sendFn: (text: string) => Promise<void>
+  ): Promise<boolean> {
+    if (this.isQueryActive(id)) {
+      await sendFn("A request is still running in this thread. Wait for it to finish, then run /r again.")
+      return true
+    }
+
+    const stored = this.acpSessionStore.get(this.config.connector, id)
+    if (!stored || stored.backendId !== this.backendId) {
+      await sendFn("No saved session is bound to this thread. Use /p and /s <number> first.")
+      return true
+    }
+
+    const existing = this.sessionManager.get(id)
+    if (existing) {
+      try {
+        await existing.client.closeSession()
+      } catch (err) {
+        this.logError(`Failed to close current session before reload ${id}:`, err)
+      }
+      try {
+        await existing.client.disconnect()
+      } catch {}
+      this.sessionManager.delete(id)
+    }
+
+    const client = this.createACPClient(stored.cwd)
+    try {
+      await client.connect()
+      let history: LoadedSessionHistoryItem[] = []
+      let historyUnavailable = false
+      try {
+        history = await client.loadSession(stored.sessionId)
+      } catch (err) {
+        this.logError(`Failed to reload session history ${id}; trying resume:`, err)
+        historyUnavailable = true
+        await client.resumeSession(stored.sessionId)
+      }
+
+      const session = this.createManagedSession(client)
+      this.sessionManager.set(id, session)
+      await this.acpSessionStore.set({
+        ...stored,
+        updatedAt: new Date().toISOString(),
+      })
+      await sendFn(this.formatSessionAttachedMessage({
+        sessionId: stored.sessionId,
+        cwd: stored.cwd,
+        title: "current session",
+      }, history, historyUnavailable).replace(/^Attached to session:/, "Reloaded session:"))
+    } catch (err) {
+      this.logError(`Failed to reload current session ${id}:`, err)
+      try {
+        await client.disconnect()
+      } catch {}
+      await sendFn("Could not reload current session.")
+    }
+
+    return true
+  }
+
+  private async handleDetachCommand(
+    id: string,
+    sendFn: (text: string) => Promise<void>
+  ): Promise<boolean> {
+    if (this.isQueryActive(id)) {
+      await sendFn("A request is still running in this thread. Wait for it to finish, then run /d again.")
+      return true
+    }
+
+    const session = this.sessionManager.get(id)
+    if (!session) {
+      await this.acpSessionStore.delete(this.config.connector, id)
+      await sendFn("No active session.")
+      return true
+    }
+
+    try {
+      await session.client.closeSession()
+    } catch (err) {
+      this.logError(`Failed to close session ${id}:`, err)
+    }
+    try {
+      await session.client.disconnect()
+    } catch {}
+
+    this.sessionManager.delete(id)
+    await this.acpSessionStore.delete(this.config.connector, id)
+    await sendFn("Detached from current session. The saved backend session was not deleted.")
+    return true
+  }
+
+  private formatSessionAttachedMessage(session: ACPSessionInfo, history: LoadedSessionHistoryItem[], historyUnavailable = false): string {
+    const title = session.title || "(untitled session)"
+    let message = `Attached to session: ${title}\n`
+    message += `Project: ${session.cwd}\n`
+    message += `Session: ${session.sessionId}\n\n`
+
+    const useful = history
+      .map(item => ({ role: item.role, content: item.content.trim() }))
+      .filter(item => item.content.length > 0)
+      .slice(-6)
+
+    if (historyUnavailable) {
+      message += "Recent history: unavailable for this session; attached without replay."
+      return message
+    }
+
+    if (useful.length === 0) {
+      message += "Recent history: no conversational messages found."
+      return message
+    }
+
+    message += "Recent history:\n"
+    for (const item of useful) {
+      const label = item.role === "user" ? "User" : item.role === "assistant" ? "Assistant" : "Tool"
+      const text = this.truncateHistoryItem(item.content)
+      message += `${label}: ${text}\n`
+    }
+
+    if (message.length > 6000) {
+      message = message.slice(0, 5900).trimEnd() + "\n... [history truncated]"
+    }
+    return message
+  }
+
+  private compactMirrorHistory(history: LoadedSessionHistoryItem[]): { role: string; content: string }[] {
+    const output: { role: string; content: string }[] = []
+    const toolGroups = new Map<string, { name: string; target: string; count: number; result: string }>()
+
+    const flushTools = () => {
+      for (const group of toolGroups.values()) {
+        const count = group.count > 1 ? ` x${group.count}` : ""
+        const target = group.target ? ` ${group.target}` : ""
+        const result = group.result ? ` -> ${group.result}` : ""
+        output.push({ role: "tool", content: `${group.name}${target}${count}${result}` })
+      }
+      toolGroups.clear()
+    }
+
+    for (const item of history) {
+      const content = item.content.trim()
+      if (!content) continue
+      if (item.role !== "tool") {
+        flushTools()
+        output.push({ role: item.role, content })
+        continue
+      }
+
+      const name = item.toolName || content.split(/\s+/, 1)[0] || "tool"
+      const target = this.toolTargetFromArgs(item.toolArgs) || this.toolTargetFromContent(content)
+      const key = `${name}\0${target}`
+      const current = toolGroups.get(key) || { name, target, count: 0, result: "" }
+      current.count++
+      if (item.toolResult) current.result = this.firstMirrorResultLine(item.toolResult)
+      else current.result = this.firstMirrorResultLine(content)
+      toolGroups.set(key, current)
+    }
+    flushTools()
+    return output
+  }
+
+  private toolTargetFromArgs(args: any): string {
+    if (!args || typeof args !== "object") return ""
+    const target = args.path || args.filepath || args.filePath || args.directory || args.dir || args.command
+    return target ? String(target) : ""
+  }
+
+  private toolTargetFromContent(content: string): string {
+    const match = content.match(/\b(?:[\w.-]+\/)*[\w.-]+\.(?:txt|md|json|toml|ts|js|py|rs|sh|yaml|yml)\b/)
+    return match?.[0] || ""
+  }
+
+  private firstMirrorResultLine(text: string): string {
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      if (["outcome:", "status:", "output_incomplete:", "output_error:", "termination_error:", "containment:", "residual_descendants:", "stdout:", "stderr:"].some(prefix => trimmed.startsWith(prefix))) continue
+      return trimmed.length > 160 ? trimmed.slice(0, 157) + "..." : trimmed
+    }
+    return ""
+  }
+
+  private truncateHistoryItem(text: string): string {
+    const singleLine = text.replace(/\s+/g, " ").trim()
+    if (singleLine.length <= 800) return singleLine
+    return singleLine.slice(0, 797) + "..."
+  }
+
+  private truncateMirrorItem(role: string, text: string): string {
+    const singleLine = text.replace(/\s+/g, " ").trim()
+    const max = role === "tool" ? 500 : 800
+    if (singleLine.length <= max) return singleLine
+    return singleLine.slice(0, max - 3) + "..."
+  }
+
   private async handleStatusCommand(
     id: string,
     sendFn: (text: string) => Promise<void>
@@ -861,7 +1471,8 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     const message = CommandHandler.formatHelpMessage(
       this.config.trigger,
       this.config.botName,
-      openCodeCommands
+      openCodeCommands,
+      this.isSessionPickerEnabled()
     )
     await sendFn(message)
     return true

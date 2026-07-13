@@ -88,6 +88,12 @@ export interface ACPConfig {
   profileDir: string
 }
 
+export interface SessionPickerConfig {
+  enabled: boolean
+  connectors: string[]
+  mirrorIntervalSeconds: number
+}
+
 export interface ChatBridgeConfig {
   botName: string
   trigger: string
@@ -96,6 +102,7 @@ export interface ChatBridgeConfig {
   defaultAgent: string | null
   modes: Record<string, string>
   streamTools: string[]  // Tools to stream output for (e.g., ["bash"]), empty = none
+  sessionPicker: SessionPickerConfig
   acp: ACPConfig
   matrix: MatrixConfig
   mattermost: MattermostConfig
@@ -115,6 +122,11 @@ const defaultConfig: ChatBridgeConfig = {
   defaultAgent: null,
   modes: {},
   streamTools: ["bash"],  // Only stream bash output by default
+  sessionPicker: {
+    enabled: false,
+    connectors: [],
+    mirrorIntervalSeconds: 60,
+  },
   acp: {
     command: "opencode",
     args: ["acp"],

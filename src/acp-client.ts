@@ -56,8 +56,29 @@ export interface MCPServer {
 }
 
 export interface SessionUpdate {
-  type: "text" | "thought" | "tool_call" | "tool_result" | "error" | "done"
+  type: "user" | "text" | "thought" | "tool_call" | "tool_result" | "error" | "done"
   content?: string
+  toolName?: string
+  toolArgs?: any
+  toolResult?: string
+  toolCallId?: string
+}
+
+export interface ACPSessionInfo {
+  sessionId: string
+  cwd: string
+  title?: string
+  updatedAt?: string
+}
+
+export interface ACPSessionListResult {
+  sessions: ACPSessionInfo[]
+  nextCursor?: string
+}
+
+export interface LoadedSessionHistoryItem {
+  role: "user" | "assistant" | "tool"
+  content: string
   toolName?: string
   toolArgs?: any
   toolResult?: string
@@ -204,6 +225,122 @@ export class ACPClient extends EventEmitter {
 
     this.sessionId = sessionId
     return sessionId
+  }
+
+  async listSessions(options: { cwd?: string; cursor?: string } = {}): Promise<ACPSessionListResult> {
+    const params: any = {}
+    if (options.cwd) params.cwd = options.cwd
+    if (options.cursor) params.cursor = options.cursor
+
+    const result = await this.send("session/list", params)
+    if (result.error) {
+      throw new Error(`Session list failed: ${JSON.stringify(result.error)}`)
+    }
+
+    return {
+      sessions: result.result?.sessions || [],
+      nextCursor: result.result?.nextCursor,
+    }
+  }
+
+  async listAllSessions(cwd?: string): Promise<ACPSessionInfo[]> {
+    const sessions: ACPSessionInfo[] = []
+    let cursor: string | undefined
+
+    do {
+      const page = await this.listSessions({ cwd, cursor })
+      sessions.push(...page.sessions)
+      cursor = page.nextCursor
+    } while (cursor)
+
+    return sessions
+  }
+
+  async loadSession(sessionId: string): Promise<LoadedSessionHistoryItem[]> {
+    const history: LoadedSessionHistoryItem[] = []
+    const toolCalls = new Map<string, { name: string; args: any }>()
+    const updateHandler = (update: SessionUpdate) => {
+      if (update.type === "user" || update.type === "text") {
+        const content = update.content || ""
+        if (!content.trim()) return
+        const role = update.type === "user" ? "user" : "assistant"
+        const last = history[history.length - 1]
+        if (last?.role === role) {
+          last.content += content
+        } else {
+          history.push({ role, content })
+        }
+        return
+      }
+
+      if (update.type === "tool_call") {
+        const id = update.toolCallId || `${update.toolName || "tool"}:${history.length}`
+        toolCalls.set(id, { name: update.toolName || "tool", args: update.toolArgs || {} })
+        return
+      }
+
+      if (update.type === "tool_result") {
+        const id = update.toolCallId || ""
+        const call = (id && toolCalls.get(id)) || { name: update.toolName || "tool", args: update.toolArgs || {} }
+        const result = (update.toolResult || "").trim()
+        const content = this.formatLoadedToolSummary(call.name, call.args, result)
+        history.push({ role: "tool", content, toolName: call.name, toolArgs: call.args, toolResult: result })
+      }
+    }
+
+    this.on("update", updateHandler)
+    try {
+      const result = await this.send("session/load", {
+        sessionId,
+        cwd: this.cwd,
+        mcpServers: this.mcpServers,
+      })
+      if (result.error) {
+        throw new Error(`Session load failed: ${JSON.stringify(result.error)}`)
+      }
+      this.sessionId = sessionId
+      return history
+    } finally {
+      this.off("update", updateHandler)
+    }
+  }
+
+  private formatLoadedToolSummary(name: string, args: any, result: string): string {
+    const target = this.toolTarget(args)
+    const resultSummary = this.firstMeaningfulLine(result)
+    const parts = [name]
+    if (target) parts.push(target)
+    if (resultSummary) parts.push(`-> ${resultSummary}`)
+    return parts.join(" ")
+  }
+
+  private toolTarget(args: any): string {
+    if (!args || typeof args !== "object") return ""
+    const path = args.path || args.filepath || args.filePath || args.directory || args.dir
+    if (path) return String(path)
+    if (args.command) return String(args.command)
+    return ""
+  }
+
+  private firstMeaningfulLine(text: string): string {
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      if (["outcome:", "status:", "output_incomplete:", "output_error:", "termination_error:", "containment:", "residual_descendants:"].some(prefix => trimmed.startsWith(prefix))) continue
+      if (trimmed.length <= 220) return trimmed
+      return trimmed.slice(0, 217) + "..."
+    }
+    return ""
+  }
+
+  async closeSession(): Promise<void> {
+    if (!this.sessionId) return
+    const sessionId = this.sessionId
+    const result = await this.send("session/close", { sessionId })
+    if (result.error) {
+      throw new Error(`Session close failed: ${JSON.stringify(result.error)}`)
+    }
+    this.sessionId = null
   }
 
   cancel(): void {
@@ -443,6 +580,12 @@ export class ACPClient extends EventEmitter {
     }
     
     switch (update.sessionUpdate) {
+      case "user_message_chunk":
+        if (update.content?.type === "text") {
+          this.emit("update", { type: "user", content: update.content.text })
+        }
+        break
+
       case "agent_message_chunk":
         if (update.content?.type === "text") {
           dbg(`AGENT_MSG_CHUNK text="${update.content.text?.substring(0, 40)}"`)
@@ -480,6 +623,7 @@ export class ACPClient extends EventEmitter {
           type: "tool_call",
           toolName: toolNameInit,
           toolArgs: toolArgsInit,
+          toolCallId: update.toolCallId,
         })
         this.emit("tool", { name: toolNameInit, status: "pending", args: toolArgsInit })
         const initialToolCallId = update.toolCallId || toolNameInit
@@ -515,6 +659,7 @@ export class ACPClient extends EventEmitter {
             type: "tool_call",
             toolName: toolNameUpdate,
             toolArgs: toolArgsUpdate,
+            toolCallId: update.toolCallId,
           })
           this.emit("tool", { name: toolNameUpdate, status: update.status, args: toolArgsUpdate })
           

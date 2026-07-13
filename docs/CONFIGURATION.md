@@ -67,6 +67,34 @@ Ferrum is not a sandbox: an allowed tool or MCP server runs with the Unix permis
 
 For production chat bots, configure only trusted MCP commands, pass only required environment variables, keep credentials outside copied profiles and session stores, and prefer narrow MCP tools over enabling general shell access.
 
+## Session picker
+
+The project/session picker is disabled by default because it exposes saved ACP working directories, session titles, and optional recent history previews.
+
+Enable it explicitly:
+
+```json
+{
+  "sessionPicker": {
+    "enabled": true,
+    "connectors": ["whatsapp"],
+    "mirrorIntervalSeconds": 60
+  }
+}
+```
+
+Commands when enabled:
+
+```text
+/p, /p <n>      list/select saved working directories
+/s, /s <n>      list/select saved sessions interactively
+/m, /m <n>      stop/start read-only mirror mode
+/r              reload current selected session
+/d              detach without deleting the backend session
+```
+
+`connectors` limits where the picker is available. If empty, all connectors may use it. Keep it disabled for shared rooms unless the session paths and history are safe to expose there.
+
 ## opencode.json (OpenCode backend)
 
 The `opencode.json` file defines the secure OpenCode agent configuration:

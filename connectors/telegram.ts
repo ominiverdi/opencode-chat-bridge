@@ -647,10 +647,14 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
       return
     }
 
+    await this.stopMirrorForUserActivity(ctx.sessionId, query, async (txt) => {
+      await this.sendReply(ctx, txt)
+    })
+
     // Bridge-local commands
     if (query.startsWith("/")) {
       const cmdName = query.slice(1).split(" ")[0].toLowerCase()
-      if (["status", "clear", "reset", "help"].includes(cmdName)) {
+      if (["status", "clear", "reset", "help", "h", "p", "projects", "s", "sessions", "m", "mirror", "r", "reload", "d", "detach"].includes(cmdName)) {
         const session = this.sessionManager.get(ctx.sessionId)
         const openCodeCommands = session?.client.availableCommands || []
         await this.handleCommand(

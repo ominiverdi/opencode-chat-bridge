@@ -261,17 +261,25 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
 
     this.log(`[MSG] ${phoneNumber}: ${text}`)
 
-    // Check trigger
+    // Check trigger. Bridge-local slash commands may be sent bare on WhatsApp
+    // for quick mobile use, e.g. /h, /p, /s, /d. Model prompts still require
+    // the configured trigger.
     let query = ""
     if (text.startsWith(TRIGGER + " ")) {
       query = text.slice(TRIGGER.length + 1).trim()
     } else if (text.startsWith(TRIGGER)) {
       query = text.slice(TRIGGER.length).trim()
+    } else if (this.isBareBridgeCommand(text)) {
+      query = text.trim()
     } else {
       return
     }
 
     if (!query) return
+
+    await this.stopMirrorForUserActivity(chatId, query, async (text) => {
+      await this.sendMessage(chatId, text)
+    })
 
     // Handle commands
     if (query.startsWith("/")) {
@@ -286,6 +294,14 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
 
     this.log(`[QUERY] ${phoneNumber}: ${query}`)
     await this.processQuery(chatId, phoneNumber, query)
+  }
+
+  private isBareBridgeCommand(text: string): boolean {
+    if (!this.isSessionPickerEnabled()) return false
+    const trimmed = text.trim()
+    if (!trimmed.startsWith("/")) return false
+    const cmd = trimmed.slice(1).split(/\s+/)[0]?.toLowerCase()
+    return ["h", "help", "p", "projects", "s", "sessions", "m", "mirror", "r", "reload", "d", "detach", "status", "clear", "reset"].includes(cmd)
   }
 
   // ---------------------------------------------------------------------------

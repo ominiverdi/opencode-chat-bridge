@@ -176,6 +176,10 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
 
     this.log(`[MSG] ${message.author.tag} in ${channelId}: ${content}`)
 
+    await this.stopMirrorForUserActivity(channelId, query, async (text) => {
+      await message.reply(text)
+    })
+
     // Handle commands
     if (query.startsWith("/")) {
       await this.handleCommand(channelId, query, async (text) => {

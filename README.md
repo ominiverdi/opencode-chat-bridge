@@ -170,9 +170,31 @@ Use the trigger prefix (default: `!oc`) or mention the bot:
 ```
 !oc what time is it?
 !oc what's the weather in Barcelona?
-!oc /help
-!oc /status
-!oc /clear
+!oc /h             # Help
+!oc /status        # Current chat session status
+!oc /p             # List saved ACP projects/workdirs (if sessionPicker is enabled)
+!oc /p 1           # Select a project/workdir
+!oc /s             # List saved sessions in the selected project
+!oc /s 2           # Switch to a saved session and show recent history
+!oc /m 2           # Mirror a saved session read-only, checking every 60s
+!oc /m             # Stop mirror mode
+!oc /r             # Reload current session and show recent history
+!oc /d             # Detach without deleting the saved backend session
+!oc /clear         # Delete current session history
+```
+
+Session picker commands are disabled by default and require `sessionPicker.enabled = true`. On WhatsApp, bridge-local slash commands may also be sent bare for quicker mobile use when the session picker is enabled:
+
+```text
+/h
+/p
+/p 1
+/s
+/s 2
+/m 2
+/m
+/r
+/d
 ```
 
 ### OpenCode Commands
