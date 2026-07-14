@@ -90,7 +90,7 @@ bun connectors/telegram.ts
 bun connectors/web.ts
 ```
 
-See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md) | [Telegram](docs/TELEGRAM_SETUP.md) | [Web](docs/WEB_SETUP.md)
+See setup guides: [Matrix](docs/MATRIX_SETUP.md) | [Slack](docs/SLACK_SETUP.md) | [Mattermost](docs/MATTERMOST_SETUP.md) | [WhatsApp](docs/WHATSAPP_SETUP.md) | [Discord](docs/DISCORD_SETUP.md) | [Telegram](docs/TELEGRAM_SETUP.md) | [Web](docs/WEB_SETUP.md). Signal is not currently supported; see [Signal Status](docs/SIGNAL_STATUS.md).
 
 ## ACP Backends
 
