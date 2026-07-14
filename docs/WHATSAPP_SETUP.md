@@ -135,6 +135,10 @@ WHATSAPP_RESPOND_TO_OTHERS=false
 
 When `respondToOthers` is `false`, only messages sent by the linked WhatsApp account can trigger the bot. Self-chat plain text still works without the trigger; owner messages in other chats still need the trigger. Other people's messages are ignored even if they use the trigger.
 
+For WhatsApp, prefer `respondToOthers: false` for personal access control. WhatsApp Web/Baileys does not always expose stable, human-friendly phone numbers for senders. Depending on WhatsApp addressing mode, messages may appear with LID-style identifiers instead of telephone numbers. These IDs can be hard to map to contacts, so maintaining a manual allowlist is usually impractical.
+
+`WHATSAPP_ALLOWED_USERS` is still available for advanced deployments where connector-native sender IDs are acceptable.
+
 To limit which non-owner senders can use the bot by sender ID, set allowed users:
 
 ```bash

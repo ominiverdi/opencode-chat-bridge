@@ -640,6 +640,8 @@ WhatsApp also supports personal linked-account mode:
 
 When `respondToOthers` is `false`, only messages sent by the linked WhatsApp account can trigger the bot. Messages from other people are ignored even if they use the trigger. WhatsApp self-chat plain text is always accepted as a prompt from the owner; other chats still require the configured trigger.
 
+For WhatsApp personal deployments, prefer `whatsapp.respondToOthers: false` over `allowedUsers`; WhatsApp sender IDs may be LID-style identifiers rather than phone numbers and can be hard to map to contacts.
+
 In `chat-bridge.json`:
 
 ```json
