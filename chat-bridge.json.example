@@ -5,12 +5,6 @@
   "streamTools": ["bash"],
   "sessionStorePath": "./.opencode/chat-sessions.json",
   "defaultAgent": null,
-  "modes": {
-    "!s": "serious",
-    "!d": "sarcastic",
-    "!a": "agent",
-    "!p": "plan"
-  },
   "sessionPicker": {
     "enabled": false,
     "connectors": [],

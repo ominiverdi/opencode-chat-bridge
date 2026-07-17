@@ -101,7 +101,6 @@ export interface ChatBridgeConfig {
   rateLimitSeconds: number
   sessionStorePath: string
   defaultAgent: string | null
-  modes: Record<string, string>
   streamTools: string[]  // Tools to stream output for (e.g., ["bash"]), empty = none
   sessionPicker: SessionPickerConfig
   acp: ACPConfig
@@ -121,7 +120,6 @@ const defaultConfig: ChatBridgeConfig = {
   rateLimitSeconds: 5,
   sessionStorePath: "./.opencode/chat-sessions.json",
   defaultAgent: null,
-  modes: {},
   streamTools: ["bash"],  // Only stream bash output by default
   sessionPicker: {
     enabled: false,
