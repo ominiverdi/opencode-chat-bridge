@@ -4,6 +4,7 @@ Bridge ACP-compatible agents such as [OpenCode](https://opencode.ai) and [Ferrum
 
 ## Recent Changes
 
+- Telegram connector accepts file attachments from users (photo, document, video, audio, voice, animation, video note, sticker). Attachments are downloaded to the session workspace and exposed to the LLM as local file paths.
 - ACP backend executable, arguments, identity, and workspace profile are configurable
 - ACP sessions persist across bridge restarts and remain isolated per chat thread
 - New cross-connector `allowedUsers` allowlists for Slack, WhatsApp, Matrix, Discord, Mattermost, and Telegram

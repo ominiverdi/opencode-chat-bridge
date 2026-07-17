@@ -40,6 +40,8 @@ import {
   removeImageMarkers,
   removeDocMarkers,
   sanitizeServerPaths,
+  getSessionDir,
+  ensureSessionDir,
 } from "../src"
 
 // =============================================================================
@@ -58,8 +60,12 @@ const ENV_ALLOWED_USERS = parseCsvList(process.env.TELEGRAM_ALLOWED_USERS)
 const ALLOWED_USERS = ENV_ALLOWED_USERS.length > 0 ? ENV_ALLOWED_USERS : config.telegram.allowedUsers
 
 const TG_API_BASE = `https://api.telegram.org/bot${TG_TOKEN}`
+const TG_FILE_BASE = `https://api.telegram.org/file/bot${TG_TOKEN}`
 const POLL_TIMEOUT_SECS = 30
 const MAX_MESSAGE_LENGTH = 4096
+const UPLOADS_SUBDIR = "uploads"
+/** Telegram Bot API download limit; refuse larger files up-front. */
+const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 
 // =============================================================================
 // Telegram Bot API helpers
@@ -171,6 +177,69 @@ async function tgUpload<T = unknown>(
     )
   }
   return json.result as T
+}
+
+/**
+ * Download a previously-resolved Telegram file path to a local file on disk.
+ * Telegram caps Bot API downloads at MAX_DOWNLOAD_BYTES and returns errors
+ * for files that exceed the limit -- we surface a clear `TelegramApiError`
+ * so the caller can skip oversized attachments without crashing.
+ */
+async function tgDownloadFile(filePath: string, destPath: string): Promise<number> {
+  const url = `${TG_FILE_BASE}/${filePath}`
+  const res = await fetch(url)
+
+  if (!res.ok) {
+    throw await telegramHttpError(res, `Telegram file download ${filePath}`)
+  }
+
+  const contentLength = Number(res.headers.get("content-length") || 0)
+  if (contentLength > MAX_DOWNLOAD_BYTES) {
+    // Drain the body so the underlying connection is reusable.
+    await res.arrayBuffer().catch(() => {})
+    throw new TelegramApiError(
+      `Telegram file exceeds ${MAX_DOWNLOAD_BYTES}-byte download limit (${contentLength} bytes)`,
+      413
+    )
+  }
+
+  const buffer = Buffer.from(await res.arrayBuffer())
+  if (buffer.length > MAX_DOWNLOAD_BYTES) {
+    throw new TelegramApiError(
+      `Downloaded Telegram file exceeds ${MAX_DOWNLOAD_BYTES}-byte limit (${buffer.length} bytes)`,
+      413
+    )
+  }
+  fs.writeFileSync(destPath, buffer)
+  return buffer.length
+}
+
+/**
+ * Compose a safe, unique local filename for an attachment.
+ *
+ * Prefers the user's original `file_name` (or the extension Telegram returned
+ * via `getFile`), falls back to the per-kind default extension, and prefixes
+ * the basename with a timestamp + random suffix so concurrent downloads of
+ * identical files never collide.
+ */
+function buildAttachmentFilename(
+  attachment: TelegramAttachment,
+  resolvedFilePath: string
+): string {
+  const origName = attachment.fileName || attachment.kind
+  const candidateExt =
+    (origName.includes(".") && origName.split(".").pop()) ||
+    (resolvedFilePath.includes(".") && resolvedFilePath.split(".").pop()) ||
+    DEFAULT_EXT_BY_KIND[attachment.kind]
+
+  const safeBase = origName
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 80) || attachment.kind
+  // Avoid dotted extensions in the base; guarantee the final basename ends in
+  // exactly one extension.
+  const baseNoExt = safeBase.replace(/\.[^.]+$/, "")
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return `${stamp}-${baseNoExt}.${candidateExt}`
 }
 
 // =============================================================================
@@ -305,6 +374,178 @@ export function shouldHandleImplicitTopicReply(input: {
     if (lower === mentionLower) return false
   }
   return true
+}
+
+// =============================================================================
+// Incoming file attachments
+// =============================================================================
+
+/**
+ * Categories of media that can be attached to a Telegram message. Maps
+ * 1:1 to the message-object field names so we can correlate when downloading.
+ */
+export type TelegramAttachmentKind =
+  | "photo"
+  | "document"
+  | "video"
+  | "video_note"
+  | "audio"
+  | "voice"
+  | "animation"
+  | "sticker"
+
+/**
+ * A file attached to an incoming Telegram message. The bot downloads the
+ * binary via `getFile` and exposes the local path to the LLM.
+ *
+ * Photos are arrays of `PhotoSize` in the Telegram payload; `extractTelegramAttachments`
+ * picks the largest variant and exposes it as a single attachment with kind="photo".
+ */
+export interface TelegramAttachment {
+  kind: TelegramAttachmentKind
+  /** Telegram file_id; passed to `getFile` to obtain the download URL. */
+  fileId: string
+  /** Original filename when reported (documents / animations / videos / audio). */
+  fileName?: string
+  /** MIME type when reported, or a sensible default per kind. */
+  mimeType?: string
+  /** File size in bytes when reported by Telegram. */
+  size?: number
+}
+
+/**
+ * Default MIME types per attachment kind. Telegram doesn't always set them
+ * (e.g. voice, sticker) so we supply reasonable fallbacks for downstream
+ * prompts and filename inference.
+ */
+const DEFAULT_MIME_BY_KIND: Record<TelegramAttachmentKind, string> = {
+  photo: "image/jpeg",
+  document: "application/octet-stream",
+  video: "video/mp4",
+  video_note: "video/mp4",
+  audio: "audio/mpeg",
+  voice: "audio/ogg",
+  animation: "video/mp4",
+  sticker: "image/webp",
+}
+
+const DEFAULT_EXT_BY_KIND: Record<TelegramAttachmentKind, string> = {
+  photo: "jpg",
+  document: "bin",
+  video: "mp4",
+  video_note: "mp4",
+  audio: "mp3",
+  voice: "ogg",
+  animation: "mp4",
+  sticker: "webp",
+}
+
+/**
+ * Pure, dependency-free extractor for Telegram message attachments.
+ *
+ * Telegram represents a photo as an array of `PhotoSize` variants (different
+ * resolutions); we pick the one with the largest `file_size`, falling back
+ * to the last entry when sizes are absent.
+ *
+ * All other kinds are single objects. For each kind we capture `file_id`
+ * plus optional `file_name`, `mime_type`, and `file_size`. Stickers and
+ * voice notes don't carry `mime_type`, so callers can use the per-kind
+ * defaults via {@link DEFAULT_MIME_BY_KIND}.
+ *
+ * Exported for unit and integration tests.
+ */
+export function extractTelegramAttachments(
+  message: Record<string, unknown>
+): TelegramAttachment[] {
+  const out: TelegramAttachment[] = []
+
+  // Photo: array of PhotoSize objects
+  const photo = message.photo
+  if (Array.isArray(photo) && photo.length > 0) {
+    // Photos are arrays of `PhotoSize` variants; pick the largest one. Telegram
+    // reports `file_size` inconsistently, so:
+    //  - if any entry has a known size, that's the source of truth, and
+    //  - entries without `file_id` are dropped (they can't be downloaded).
+    let sized: any = null
+    for (const p of photo) {
+      if (!p || typeof p !== "object") continue
+      if (!p.file_id) continue
+      if (typeof p.file_size !== "number") continue
+      if (!sized || p.file_size > sized.file_size) sized = p
+    }
+
+    // If no entry carried a known size, Telegram sorts photo arrays by
+    // ascending resolution, so the last entry with a file_id is the largest
+    // variant we can actually download.
+    let largest: any = sized
+    if (!largest) {
+      for (let i = photo.length - 1; i >= 0; i--) {
+        const p = photo[i]
+        if (!p || typeof p !== "object") continue
+        if (!p.file_id) continue
+        largest = p
+        break
+      }
+    }
+
+    if (largest?.file_id) {
+      out.push({
+        kind: "photo",
+        fileId: String(largest.file_id),
+        mimeType: DEFAULT_MIME_BY_KIND.photo,
+        size: typeof largest.file_size === "number" ? largest.file_size : undefined,
+      })
+    }
+  }
+
+  // Single-object kinds
+  const singleKinds: Array<{
+    key: string
+    kind: TelegramAttachmentKind
+    useFileName: boolean
+  }> = [
+    { key: "document", kind: "document", useFileName: true },
+    { key: "video", kind: "video", useFileName: true },
+    { key: "video_note", kind: "video_note", useFileName: false },
+    { key: "audio", kind: "audio", useFileName: true },
+    { key: "voice", kind: "voice", useFileName: false },
+    { key: "animation", kind: "animation", useFileName: true },
+    { key: "sticker", kind: "sticker", useFileName: false },
+  ]
+
+  for (const { key, kind, useFileName } of singleKinds) {
+    const value = message[key] as Record<string, unknown> | undefined
+    if (!value || typeof value !== "object" || !value.file_id) continue
+    const att: TelegramAttachment = {
+      kind,
+      fileId: String(value.file_id),
+      mimeType:
+        typeof value.mime_type === "string"
+          ? value.mime_type
+          : DEFAULT_MIME_BY_KIND[kind],
+      size: typeof value.file_size === "number" ? value.file_size : undefined,
+    }
+    if (useFileName && typeof value.file_name === "string") {
+      att.fileName = value.file_name
+    }
+    out.push(att)
+  }
+
+  return out
+}
+
+/**
+ * A file attachment that has been downloaded to a local path under the
+ * session's working directory. The connector exposes these paths to the
+ * LLM so it can read them with shell/Read/Glob tools.
+ */
+export interface DownloadedAttachment {
+  localPath: string
+  /** Basename of `localPath` -- same as `path.basename(localPath)` but cached. */
+  fileName: string
+  mimeType: string
+  size: number
+  kind: TelegramAttachmentKind
 }
 
 // =============================================================================
@@ -591,7 +832,15 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
       this.threadIsolation
     )
 
-    if (!ctx.text) return
+    // Extract any attachments the user sent alongside (or instead of) text.
+    // Pure function -- no network calls yet. We download them later, after
+    // auth checks, into the session cwd's `uploads/` subdir.
+    const attachments = extractTelegramAttachments(message)
+
+    // Skip messages with neither text nor attachments. The previous behaviour
+    // dropped caption-less media entirely; now we still drop them unless the
+    // user attached at least one file.
+    if (!ctx.text && attachments.length === 0) return
 
     // Dedupe (getUpdates occasionally replays at the same offset)
     if (this.isDuplicateEvent(ctx.dedupeId)) return
@@ -606,12 +855,24 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     const senderName =
       [from.first_name, from.username].filter(Boolean).join("@") ||
       String(from.id || ctx.userId)
-    this.log(`[MSG] ${senderName} in ${ctx.sessionId}: ${ctx.text}`)
+    this.log(
+      `[MSG] ${senderName} in ${ctx.sessionId}: ${ctx.text || "(no text)"}${attachments.length > 0 ? ` [${attachments.length} attachment(s)]` : ""}`
+    )
 
-    // Resolve the query based on trigger / mention / DM / implicit topic reply
+    // Resolve the query based on trigger / mention / DM / implicit topic reply.
+    // Attachments alone don't bypass the trigger requirement in plain groups
+    // (a user can share a photo with a friend without wanting the bot's take),
+    // but they DO count as engagement in DMs and inside active forum topics.
     const mention = `@${this.botUsername}`
     const text = ctx.text
     let query = ""
+
+    const canBypassTriggerForAttachments =
+      attachments.length > 0 &&
+      (ctx.isPrivate ||
+        (this.threadIsolation &&
+          ctx.messageThreadId !== null &&
+          this.sessionManager.has(ctx.sessionId)))
 
     if (text.startsWith(TRIGGER + " ")) {
       query = text.slice(TRIGGER.length + 1).trim()
@@ -643,8 +904,44 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     ) {
       // Implicit follow-up inside an active topic
       query = text
+    } else if (canBypassTriggerForAttachments) {
+      // Caption-less attachment in a DM or an active topic -- treat as an
+      // attachment-only query (text stays empty; we'll synthesise a header
+      // from the downloaded files below).
+      query = ""
     } else {
       return
+    }
+
+    // Download any attachments to the session cwd BEFORE processing so the
+    // LLM can reference them as plain file paths (and so command forwarding
+    // also sees them). Failures are logged but never block the query --
+    // Telegram Bot API downloads are capped at MAX_DOWNLOAD_BYTES per file.
+    const downloadedAttachments: DownloadedAttachment[] =
+      attachments.length > 0
+        ? await this.downloadAttachmentsToSession(ctx.sessionId, attachments)
+        : []
+
+    // Snapshot the original query before we possibly augment it with an
+    // `[Attached file: ...]` header. We need this to keep command routing
+    // correct: a "/status" caption with an attached photo should still hit
+    // the bridge-local command handler, not the OpenCode prompt path.
+    const originalQuery = query
+
+    // Prepend attachment info so the LLM can use shell/read tools to access
+    // them. If the user sent only a file (no caption), synthesise a minimal
+    // body so OpenCode still receives a valid user turn.
+    if (downloadedAttachments.length > 0) {
+      const header = downloadedAttachments
+        .map((d) =>
+          `[Attached file: ${d.localPath} (${d.mimeType}, ${d.size} bytes, ${d.kind}, filename="${d.fileName}")]`
+        )
+        .join("\n")
+      if (query) {
+        query = `${header}\n\n${query}`
+      } else {
+        query = `${header}\n\n(User sent a file attachment with no message text. Use the attached tool(s) to examine it.)`
+      }
     }
 
     await this.stopMirrorForUserActivity(ctx.sessionId, query, async (txt) => {
@@ -652,14 +949,14 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     })
 
     // Bridge-local commands
-    if (query.startsWith("/")) {
-      const cmdName = query.slice(1).split(" ")[0].toLowerCase()
+    if (originalQuery.startsWith("/")) {
+      const cmdName = originalQuery.slice(1).split(" ")[0].toLowerCase()
       if (["status", "clear", "reset", "help", "h", "p", "projects", "s", "sessions", "m", "mirror", "r", "reload", "d", "detach"].includes(cmdName)) {
         const session = this.sessionManager.get(ctx.sessionId)
         const openCodeCommands = session?.client.availableCommands || []
         await this.handleCommand(
           ctx.sessionId,
-          query,
+          originalQuery,
           async (txt) => {
             await this.sendReply(ctx, txt)
           },
@@ -668,15 +965,17 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
         return
       }
 
-      // Forward other /commands to OpenCode
-      this.log(`[CMD] Forwarding to OpenCode: ${query}`)
+      // Forward other /commands (e.g. /init, /compact) to OpenCode. We pass
+      // the AUGMENTED query so the LLM still sees any attached files.
+      this.log(`[CMD] Forwarding to OpenCode: ${originalQuery}`)
       if (!this.checkRateLimit(ctx.userId)) return
       await this.processQuery(ctx, query)
       return
     }
 
     // If user just pinged with no query, give a hint instead of consuming
-    // a query slot.
+    // a query slot. By this point `query` is non-empty whenever the user
+    // sent at least one attachment, so the hint only fires for plain pings.
     if (!query) {
       if (!ctx.isPrivate) {
         await this.sendReply(
@@ -890,6 +1189,77 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
   // ---------------------------------------------------------------------------
   // Media uploads
   // ---------------------------------------------------------------------------
+
+  /**
+   * Resolve the per-session `uploads/` directory and download every user-sent
+   * attachment into it. Returns the list of local paths actually downloaded;
+   * failures (oversized files, network errors) are logged and skipped so the
+   * LLM only sees files that succeeded.
+   *
+   * Must be called BEFORE `getOrCreateSession()` would create the session cwd
+   * so that `ensureSessionDir(sessionDir)` is a no-op when the connector
+   * subsequently copies its config and starts OpenCode there.
+   */
+  private async downloadAttachmentsToSession(
+    sessionId: string,
+    attachments: TelegramAttachment[]
+  ): Promise<DownloadedAttachment[]> {
+    if (attachments.length === 0) return []
+
+    let sessionDir: string
+    let uploadsDir: string
+    try {
+      sessionDir = getSessionDir("telegram", sessionId)
+      uploadsDir = path.join(sessionDir, UPLOADS_SUBDIR)
+      ensureSessionDir(uploadsDir) // also ensures sessionDir
+    } catch (err) {
+      this.logError(`[ATTACH] Failed to prepare uploads dir for ${sessionId}:`, err)
+      return []
+    }
+
+    const downloaded: DownloadedAttachment[] = []
+
+    for (const att of attachments) {
+      try {
+        if (att.size !== undefined && att.size > MAX_DOWNLOAD_BYTES) {
+          this.logError(
+            `[ATTACH] Skipping ${att.kind} ${att.fileId}: ${att.size} bytes exceeds ${MAX_DOWNLOAD_BYTES}-byte Telegram download limit`
+          )
+          continue
+        }
+
+        const fileInfo = await tgApi<{
+          file_id: string
+          file_unique_id: string
+          file_size?: number
+          file_path?: string
+        }>("getFile", { file_id: att.fileId })
+
+        if (!fileInfo?.file_path) {
+          this.logError(`[ATTACH] getFile returned no file_path for ${att.kind} ${att.fileId}`)
+          continue
+        }
+
+        const basename = buildAttachmentFilename(att, fileInfo.file_path)
+        const localPath = path.join(uploadsDir, basename)
+
+        const size = await tgDownloadFile(fileInfo.file_path, localPath)
+
+        downloaded.push({
+          localPath,
+          fileName: basename,
+          mimeType: att.mimeType || DEFAULT_MIME_BY_KIND[att.kind],
+          size,
+          kind: att.kind,
+        })
+        this.log(`[ATTACH] Downloaded ${att.kind} -> ${localPath} (${size} bytes)`)
+      } catch (err) {
+        this.logError(`[ATTACH] Failed to download ${att.kind} ${att.fileId}:`, err)
+      }
+    }
+
+    return downloaded
+  }
 
   private async sendPhotoFromFile(context: TelegramEventContext, filePath: string): Promise<void> {
     try {

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Telegram file attachments from users** - The Telegram connector now
+  downloads photos, documents, videos, audio, voice notes, animations
+  (GIFs), video notes, and stickers that users send to the bot. Each
+  attachment is saved to `<session-cwd>/uploads/` and its absolute path is
+  prepended to the LLM prompt (alongside the user's caption) so the LLM
+  can use `read`, `bash`, `glob`, or other tools to inspect the file.
+  Telegram Bot API's 20 MB-per-file download limit is enforced up-front;
+  oversized files are skipped with a log line and the message is still
+  processed. Caption-less media in DMs (or inside active forum topics)
+  count as engagement and bypass the trigger requirement.
 - **Telegram connector** - New connector using the Telegram Bot API over HTTPS
   with native `fetch` and long-polling `getUpdates`. Zero external runtime
   dependencies, no public port or webhook required. Features:

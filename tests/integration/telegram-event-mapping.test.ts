@@ -11,6 +11,7 @@ import {
   normalizeTelegramEventContext,
   buildTelegramSessionId,
   resolveMessageThreadId,
+  extractTelegramAttachments,
   type TelegramEventContext,
 } from "../../connectors/telegram"
 
@@ -271,5 +272,140 @@ describe("telegram event mapping integration", () => {
     )
     expect(ctx.sessionId).toBe(expectedSession)
     expect(ctx.sessionId).toBe("-1009:99")
+  })
+
+  // ===========================================================================
+  // Attachment mapping
+  // ===========================================================================
+
+  /** Build an update with a `photo` array on the message. */
+  function tgPhotoUpdate(opts: {
+    chatId: number
+    from: number
+    messageId: number
+    caption?: string
+    sizes?: Array<{ file_id: string; file_size?: number }>
+  }): Record<string, unknown> {
+    const message: Record<string, unknown> = {
+      message_id: opts.messageId,
+      from: { id: opts.from, is_bot: false },
+      chat: { id: opts.chatId, type: "private" },
+      date: 1_700_000_000,
+      photo: opts.sizes ?? [
+        { file_id: "small-id", file_size: 100 },
+        { file_id: "large-id", file_size: 9_000 },
+      ],
+    }
+    if (opts.caption !== undefined) message.caption = opts.caption
+    return { update_id: opts.messageId, message }
+  }
+
+  function tgDocumentUpdate(opts: {
+    chatId: number
+    from: number
+    messageId: number
+    caption?: string
+    document: Record<string, unknown>
+  }): Record<string, unknown> {
+    const message: Record<string, unknown> = {
+      message_id: opts.messageId,
+      from: { id: opts.from, is_bot: false },
+      chat: { id: opts.chatId, type: "private" },
+      date: 1_700_000_000,
+      document: opts.document,
+    }
+    if (opts.caption !== undefined) message.caption = opts.caption
+    return { update_id: opts.messageId, message }
+  }
+
+  test("photo with caption yields both attachments and a valid text context", () => {
+    const raw = tgPhotoUpdate({
+      chatId: 42,
+      from: 42,
+      messageId: 7,
+      caption: "!oc describe this",
+    })
+
+    const message = raw.message as Record<string, unknown>
+    const ctx = map(raw, true)
+    expect(ctx.text).toBe("!oc describe this")
+    expect(ctx.sessionId).toBe("42")
+
+    const atts = extractTelegramAttachments(message)
+    expect(atts).toHaveLength(1)
+    expect(atts[0].kind).toBe("photo")
+    expect(atts[0].fileId).toBe("large-id") // picked the largest by file_size
+    expect(atts[0].size).toBe(9_000)
+  })
+
+  test("caption-less photo still extracts an attachment with empty text", () => {
+    const raw = tgPhotoUpdate({
+      chatId: 42,
+      from: 42,
+      messageId: 8,
+    })
+
+    const message = raw.message as Record<string, unknown>
+    const ctx = map(raw, true)
+    expect(ctx.text).toBe("")
+
+    const atts = extractTelegramAttachments(message)
+    expect(atts).toHaveLength(1)
+    expect(atts[0].kind).toBe("photo")
+    expect(atts[0].fileId).toBe("large-id")
+  })
+
+  test("document with caption produces both text and a document attachment", () => {
+    const raw = tgDocumentUpdate({
+      chatId: 42,
+      from: 42,
+      messageId: 9,
+      caption: "!oc summarise this paper",
+      document: {
+        file_id: "doc-id",
+        file_unique_id: "doc-uniq",
+        file_name: "paper.pdf",
+        mime_type: "application/pdf",
+        file_size: 50_000,
+      },
+    })
+
+    const message = raw.message as Record<string, unknown>
+    const ctx = map(raw, true)
+    expect(ctx.text).toBe("!oc summarise this paper")
+
+    const atts = extractTelegramAttachments(message)
+    expect(atts).toEqual([
+      {
+        kind: "document",
+        fileId: "doc-id",
+        fileName: "paper.pdf",
+        mimeType: "application/pdf",
+        size: 50_000,
+      },
+    ])
+  })
+
+  test("photo + document in the same message produces two attachments", () => {
+    const message: Record<string, unknown> = {
+      message_id: 100,
+      from: { id: 1, is_bot: false },
+      chat: { id: 99, type: "private" },
+      date: 1_700_000_000,
+      caption: "!oc compare",
+      photo: [
+        { file_id: "p1", file_size: 800 },
+        { file_id: "p2", file_size: 8000 },
+      ],
+      document: {
+        file_id: "d1",
+        file_name: "report.pdf",
+        mime_type: "application/pdf",
+      },
+    }
+    const atts = extractTelegramAttachments(message)
+    expect(atts).toHaveLength(2)
+    const kinds = atts.map((a) => a.kind).sort()
+    expect(kinds).toEqual(["document", "photo"])
   })
 })
