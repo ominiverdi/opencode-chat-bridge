@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `allowedUsers` / `TELEGRAM_ALLOWED_USERS` allowlist plus `ignoreChats`
     and `ignoreUsers` blocklists
   - `TELEGRAM_DROP_PENDING=1` to skip messages queued while offline
+  - Swipe-replies to one of this bot's own messages are forwarded without
+    a trigger/`@`-mention, gated on an active session so stale replies are
+    ignored. Toggle with `telegram.respondToReplies` (default `true`).
+    Fixes [#34](https://github.com/ominiverdi/opencode-chat-bridge/issues/34).
 - **Universal user allowlists (Slack, WhatsApp, Matrix, Discord, Mattermost, Telegram)** -
   Each connector now supports `allowedUsers` in `chat-bridge.json` plus
   per-connector `*_ALLOWED_USERS` env vars. Messages from unlisted users are
@@ -89,6 +93,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `WHATSAPP_ALLOWED_NUMBERS` were removed in favor of `allowedUsers` and
   `WHATSAPP_ALLOWED_USERS` to match all other connectors.
 ### Fixed
+- **Telegram: bot never answered swipe-replies to its own messages**
+  (#34) - Added `telegram.respondToReplies` (default `true`) and a
+  `shouldHandleTelegramBotReply` decision branch in the Telegram connector so
+  long-pressing the bot's message and tapping "Reply" continues the
+  conversation even in regular groups without a forum topic. Match is keyed
+  on the parent message's `from.id`, so replies to other bots (or to
+  messages where Telegram redacts `from`) are ignored, and the connector
+  only engages when an active session exists for the chat/topic.
 - **Trigger env var inconsistency** - All connectors now support per-connector
   trigger overrides (`SLACK_TRIGGER`, `MATTERMOST_TRIGGER`, etc.) with fallback
   to `chat-bridge.json`. Previously only Slack and Discord had env overrides.

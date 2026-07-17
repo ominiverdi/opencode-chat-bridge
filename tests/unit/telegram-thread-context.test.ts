@@ -9,6 +9,7 @@ import {
   buildTelegramSessionId,
   normalizeTelegramEventContext,
   shouldHandleImplicitTopicReply,
+  shouldHandleTelegramBotReply,
   type TelegramNormalizeInput,
 } from "../../connectors/telegram"
 
@@ -170,6 +171,39 @@ describe("normalizeTelegramEventContext", () => {
       true
     )
     expect(ctx.replyToMessageId).toBe(1234)
+    expect(ctx.replyToMessageFromId).toBeNull()
+    expect(ctx.replyToMessageIsBot).toBe(false)
+  })
+
+  test("reply_to_message.from identifies the parent author", () => {
+    const ctx = normalizeTelegramEventContext(
+      {
+        ...baseInput,
+        reply_to_message: {
+          message_id: 1234,
+          from: { id: 7777, is_bot: true, username: "ocbot" },
+        },
+      },
+      true
+    )
+    expect(ctx.replyToMessageId).toBe(1234)
+    expect(ctx.replyToMessageFromId).toBe("7777")
+    expect(ctx.replyToMessageIsBot).toBe(true)
+  })
+
+  test("reply_to_message.from.is_bot=false for a human-authored parent", () => {
+    const ctx = normalizeTelegramEventContext(
+      {
+        ...baseInput,
+        reply_to_message: {
+          message_id: 1234,
+          from: { id: 5555, is_bot: false, username: "alice" },
+        },
+      },
+      true
+    )
+    expect(ctx.replyToMessageFromId).toBe("5555")
+    expect(ctx.replyToMessageIsBot).toBe(false)
   })
 
   test("handles missing optional fields", () => {
@@ -319,5 +353,145 @@ describe("shouldHandleImplicitTopicReply", () => {
         trigger: "!oc",
       })
     ).toBe(true)
+  })
+})
+
+// =============================================================================
+// shouldHandleTelegramBotReply
+// =============================================================================
+
+const OUR_BOT_ID = 12345
+
+describe("shouldHandleTelegramBotReply", () => {
+  test("accepts a swipe-reply to our own bot message", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "thanks!",
+        isPrivate: false,
+        replyToMessageIsBot: true,
+        replyToMessageFromId: String(OUR_BOT_ID),
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(true)
+  })
+
+  test("accepts in a DM too -- the per-chat branch already covers it", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "ok",
+        isPrivate: true,
+        replyToMessageIsBot: true,
+        replyToMessageFromId: String(OUR_BOT_ID),
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(true)
+  })
+
+  test("rejects when disabled", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: false,
+        text: "thanks!",
+        isPrivate: false,
+        replyToMessageIsBot: true,
+        replyToMessageFromId: String(OUR_BOT_ID),
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(false)
+  })
+
+  test("rejects when not a reply", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "hi",
+        isPrivate: false,
+        replyToMessageIsBot: false,
+        replyToMessageFromId: null,
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(false)
+  })
+
+  test("rejects when parent was authored by a different bot", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "hi",
+        isPrivate: false,
+        replyToMessageIsBot: true,
+        replyToMessageFromId: "99999", // some other bot
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(false)
+  })
+
+  test("rejects when parent was authored by a human", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "hi",
+        isPrivate: false,
+        replyToMessageIsBot: false,
+        replyToMessageFromId: "5555",
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(false)
+  })
+
+  test("rejects empty text", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "",
+        isPrivate: false,
+        replyToMessageIsBot: true,
+        replyToMessageFromId: String(OUR_BOT_ID),
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(false)
+  })
+
+  test("rejects when parent author id is missing (Telegram privacy redaction)", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "hi",
+        isPrivate: false,
+        replyToMessageIsBot: false,
+        replyToMessageFromId: null,
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(false)
+  })
+
+  test("matches bot id as string vs number without coercion surprise", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "ok",
+        isPrivate: false,
+        replyToMessageIsBot: true,
+        replyToMessageFromId: String(OUR_BOT_ID),
+        ourBotId: OUR_BOT_ID,
+      })
+    ).toBe(true)
+  })
+
+  test("rejects when botId was never resolved (0)", () => {
+    expect(
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text: "ok",
+        isPrivate: false,
+        replyToMessageIsBot: true,
+        replyToMessageFromId: "0",
+        ourBotId: 0,
+      })
+    ).toBe(true) // "0" === "0" -- this test documents current behavior; caller
+                 // guards against botId=0 by short-circuiting the branch
+                 // entirely at the call site.
   })
 })

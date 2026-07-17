@@ -194,6 +194,10 @@ export interface TelegramEventContext {
   messageThreadId: number | null
   /** message_id of the parent (when this is a reply), null otherwise */
   replyToMessageId: number | null
+  /** Author user id of the parent message (when this is a reply), null otherwise */
+  replyToMessageFromId: string | null
+  /** True iff the parent message's `from.is_bot === true` (when this is a reply) */
+  replyToMessageIsBot: boolean
   /** One of: "private" | "group" | "supergroup" | "channel" */
   chatType: string
   /** True only for messages inside a forum supergroup topic */
@@ -214,7 +218,10 @@ export interface TelegramNormalizeInput {
   text?: string
   is_topic_message?: boolean
   message_thread_id?: number
-  reply_to_message?: { message_id: number }
+  reply_to_message?: {
+    message_id: number
+    from?: { id: number | string; is_bot?: boolean; username?: string; first_name?: string }
+  }
 }
 
 /**
@@ -261,6 +268,11 @@ export function normalizeTelegramEventContext(
   const messageThreadId = resolveMessageThreadId(input)
   const text = (input.text || "").trim()
   const replyToMessageId = input.reply_to_message?.message_id ?? null
+  const replyToMessageFromId =
+    input.reply_to_message?.from !== undefined && input.reply_to_message.from.id !== undefined
+      ? String(input.reply_to_message.from.id)
+      : null
+  const replyToMessageIsBot = Boolean(input.reply_to_message?.from?.is_bot)
   const isForumTopic = Boolean(input.chat.is_forum) && Boolean(input.is_topic_message)
 
   return {
@@ -270,6 +282,8 @@ export function normalizeTelegramEventContext(
     text,
     messageThreadId,
     replyToMessageId,
+    replyToMessageFromId,
+    replyToMessageIsBot,
     chatType: input.chat.type,
     isForumTopic,
     isPrivate: input.chat.type === "private",
@@ -307,6 +321,41 @@ export function shouldHandleImplicitTopicReply(input: {
   return true
 }
 
+/**
+ * Decide whether a plain message that is a swipe-reply to one of this bot's
+ * own messages should be forwarded without a trigger/mention.
+ *
+ * The connector still has to verify an active session exists for the
+ * relevant chat/topic. Pure data only -- the `ourBotId` parameter lets the
+ * caller narrow the match to "this bot" rather than any bot in the chat.
+ *
+ * Returns false when the option is disabled, when the message is not a
+ * reply, when the parent message was not authored by a bot at all, when the
+ * parent author doesn't match our bot id, or when the message text is empty.
+ * The trigger/mention guards are inherited from `shouldHandleImplicitTopicReply`:
+ * a swipe-reply to the bot whose text also starts with the trigger is fine
+ * here -- the trigger-prefix branch is what catches it in the caller.
+ */
+export function shouldHandleTelegramBotReply(input: {
+  enabled: boolean
+  text: string
+  isPrivate: boolean
+  replyToMessageIsBot: boolean
+  replyToMessageFromId: string | null
+  ourBotId: number
+}): boolean {
+  if (!input.enabled) return false
+  if (!input.text) return false
+  if (!input.replyToMessageIsBot) return false
+  if (input.replyToMessageFromId === null) return false
+  if (String(input.ourBotId) !== input.replyToMessageFromId) return false
+  // The DM case is already handled by the catch-all `ctx.isPrivate` branch in
+  // the caller's decision tree, but we accept it here too for completeness
+  // and so this helper is self-contained in tests.
+  void input.isPrivate
+  return true
+}
+
 // =============================================================================
 // Session type
 // =============================================================================
@@ -328,6 +377,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
   private maxReconnectAttempts = 20
   private threadIsolation: boolean
   private respondToMentions: boolean
+  private respondToReplies: boolean
 
   constructor() {
     super({
@@ -340,6 +390,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     })
     this.threadIsolation = THREAD_ISOLATION
     this.respondToMentions = config.telegram.respondToMentions
+    this.respondToReplies = config.telegram.respondToReplies
   }
 
   // ---------------------------------------------------------------------------
@@ -357,6 +408,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     this.logStartup()
     console.log(`  Thread isolation: ${this.threadIsolation ? "on (per-topic sessions)" : "off (per-chat sessions)"}`)
     console.log(`  Respond to mentions: ${this.respondToMentions ? "on" : "off"}`)
+    console.log(`  Respond to replies: ${this.respondToReplies ? "on" : "off"}`)
     if (DROP_PENDING) console.log(`  Will drop pending updates on startup`)
 
     await this.cleanupSessions()
@@ -578,6 +630,22 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     const chat = (message.chat as Record<string, unknown> | undefined)
     if (!chat || chat.id === undefined) return
 
+    const replyToMessage = message.reply_to_message as
+      | { message_id: number; from?: Record<string, unknown> }
+      | undefined
+    const replyToMessageFromRaw = replyToMessage?.from as
+      | { id?: number | string; is_bot?: boolean; username?: string; first_name?: string }
+      | undefined
+    const replyToMessageFrom =
+      replyToMessageFromRaw && replyToMessageFromRaw.id !== undefined
+        ? {
+            id: replyToMessageFromRaw.id,
+            is_bot: replyToMessageFromRaw.is_bot,
+            username: replyToMessageFromRaw.username,
+            first_name: replyToMessageFromRaw.first_name,
+          }
+        : undefined
+
     const ctx = normalizeTelegramEventContext(
       {
         chat: chat as { id: number | string; type: string; is_forum?: boolean },
@@ -586,7 +654,13 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
         text: String(message.text || message.caption || ""),
         is_topic_message: message.is_topic_message as boolean | undefined,
         message_thread_id: message.message_thread_id as number | undefined,
-        reply_to_message: message.reply_to_message as { message_id: number } | undefined,
+        reply_to_message:
+          replyToMessage === undefined
+            ? undefined
+            : {
+                message_id: replyToMessage.message_id,
+                from: replyToMessageFrom,
+              },
       },
       this.threadIsolation
     )
@@ -642,6 +716,22 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
       this.sessionManager.has(ctx.sessionId)
     ) {
       // Implicit follow-up inside an active topic
+      query = text
+    } else if (
+      this.respondToReplies &&
+      shouldHandleTelegramBotReply({
+        enabled: true,
+        text,
+        isPrivate: ctx.isPrivate,
+        replyToMessageIsBot: ctx.replyToMessageIsBot,
+        replyToMessageFromId: ctx.replyToMessageFromId,
+        ourBotId: this.botId,
+      }) &&
+      this.sessionManager.has(ctx.sessionId)
+    ) {
+      // Direct swipe-reply to one of this bot's own messages inside an
+      // active chat/topic. DMs are already caught above; this branch is
+      // effectively the non-DM reply-to-bot case.
       query = text
     } else {
       return

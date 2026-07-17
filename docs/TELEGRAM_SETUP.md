@@ -61,6 +61,7 @@ installations), add to `chat-bridge.json`:
     "token": "{env:TELEGRAM_BOT_TOKEN}",
     "respondToMentions": true,
     "threadIsolation": true,
+    "respondToReplies": true,
     "ignoreChats": [],
     "ignoreUsers": [],
     "allowedUsers": []
@@ -71,7 +72,9 @@ installations), add to `chat-bridge.json`:
 All keys are optional except `enabled` and `token`. `respondToMentions` (default
 `true`) makes the bot also reply when you `@`-mention it in groups (in
 addition to the trigger prefix). `threadIsolation` (default `true`) gives each
-forum topic its own isolated OpenCode session.
+forum topic its own isolated OpenCode session. `respondToReplies` (default
+`true`) makes the bot also reply when you swipe-reply to one of its own
+messages, even without a trigger prefix; set it to `false` to disable.
 
 ## Step 3: Run the Connector
 
@@ -128,7 +131,14 @@ A message becomes a query when:
 2. It `@`-mentions the bot (e.g., `@your_bot hello`), or
 3. It is sent to the bot in a private chat (auto-handled, no prefix needed), or
 4. It is a plain reply inside an active topic when `threadIsolation` is on
-   (the connector continues the conversation without re-mentioning)
+   (the connector continues the conversation without re-mentioning), or
+5. It is a swipe-reply to one of this bot's own messages, when
+   `respondToReplies` is on (default `true`). This makes the bot answer when
+   you long-press its message and tap "Reply", even in a regular group with
+   no topic and no trigger. In groups the connector requires an active session
+   for the chat first, so it doesn't pick up stale replies to week-old bot
+   messages. The match is keyed on the parent message's `from.id`, so replies
+   to other bots (or to messages where Telegram redacts `from`) are ignored.
 
 ### Commands
 

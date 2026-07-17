@@ -66,6 +66,12 @@ export interface TelegramConfig {
   /** Per-topic sessions in forum supergroups (chatId:messageThreadId).
    *  When false, all messages in a chat share one session. */
   threadIsolation: boolean
+  /** Respond when the user replies (swipe-reply) to a message from this bot,
+   *  even when the message doesn't start with the trigger or @mention.
+   *  Always on in DMs (no-op), and in groups/topic replies the connector
+   *  requires an active session for the same chat/topic first so the bot
+   *  doesn't pick up stale replies from days-old conversations. */
+  respondToReplies: boolean
   /** Comma-separated Telegram numeric chat IDs and/or user IDs to ignore */
   ignoreChats: string[]
   /** Comma-separated Telegram numeric user IDs to ignore */
@@ -182,6 +188,7 @@ const defaultConfig: ChatBridgeConfig = {
     token: "",
     respondToMentions: true,
     threadIsolation: true,
+    respondToReplies: true,
     ignoreChats: [],
     ignoreUsers: [],
     allowedUsers: [],

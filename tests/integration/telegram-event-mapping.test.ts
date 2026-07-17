@@ -28,6 +28,8 @@ function tgUpdate(opts: {
   isTopicMessage?: boolean
   messageThreadId?: number
   replyToMessageId?: number
+  replyToFromId?: number | string
+  replyToFromIsBot?: boolean
   isBot?: boolean
   updateId?: number
 }): Record<string, unknown> {
@@ -55,7 +57,14 @@ function tgUpdate(opts: {
   if (opts.isTopicMessage) message.is_topic_message = true
   if (opts.messageThreadId !== undefined) message.message_thread_id = opts.messageThreadId
   if (opts.replyToMessageId !== undefined) {
-    message.reply_to_message = { message_id: opts.replyToMessageId }
+    const reply: Record<string, unknown> = { message_id: opts.replyToMessageId }
+    if (opts.replyToFromId !== undefined) {
+      reply.from = {
+        id: opts.replyToFromId,
+        is_bot: !!opts.replyToFromIsBot,
+      }
+    }
+    message.reply_to_message = reply
   }
 
   return {
@@ -69,6 +78,12 @@ function map(raw: Record<string, unknown>, threadIsolation = true): TelegramEven
   const message = raw.message as Record<string, unknown>
   const chat = message.chat as { id: number | string; type: string; is_forum?: boolean }
   const from = message.from as { id: number | string; is_bot?: boolean; username?: string; first_name?: string }
+  const replyToMessage = message.reply_to_message as
+    | { message_id: number; from?: Record<string, unknown> }
+    | undefined
+  const replyFromRaw = replyToMessage?.from as
+    | { id?: number | string; is_bot?: boolean }
+    | undefined
 
   return normalizeTelegramEventContext(
     {
@@ -78,7 +93,16 @@ function map(raw: Record<string, unknown>, threadIsolation = true): TelegramEven
       text: String(message.text || message.caption || ""),
       is_topic_message: message.is_topic_message as boolean | undefined,
       message_thread_id: message.message_thread_id as number | undefined,
-      reply_to_message: message.reply_to_message as { message_id: number } | undefined,
+      reply_to_message:
+        replyToMessage === undefined
+          ? undefined
+          : {
+              message_id: replyToMessage.message_id,
+              from:
+                replyFromRaw && replyFromRaw.id !== undefined
+                  ? { id: replyFromRaw.id, is_bot: replyFromRaw.is_bot }
+                  : undefined,
+            },
     },
     threadIsolation
   )
@@ -199,6 +223,46 @@ describe("telegram event mapping integration", () => {
     expect(ctx.replyToMessageId).toBe(199)
     expect(ctx.sessionId).toBe("-1001")
     expect(ctx.messageThreadId).toBeNull()
+    expect(ctx.replyToMessageFromId).toBeNull()
+    expect(ctx.replyToMessageIsBot).toBe(false)
+  })
+
+  test("reply to bot in a forum topic exposes parent author + bot flag", () => {
+    const ctx = map(
+      tgUpdate({
+        chatId: -1001,
+        isForum: true,
+        from: 42,
+        messageId: 201,
+        text: "thanks!",
+        isTopicMessage: true,
+        messageThreadId: 7,
+        replyToMessageId: 200,
+        replyToFromId: 9999,
+        replyToFromIsBot: true,
+      })
+    )
+    expect(ctx.replyToMessageId).toBe(200)
+    expect(ctx.replyToMessageFromId).toBe("9999")
+    expect(ctx.replyToMessageIsBot).toBe(true)
+    expect(ctx.sessionId).toBe("-1001:7")
+  })
+
+  test("reply with no parent `from` (Telegram privacy redaction) yields null bot flag", () => {
+    const ctx = map(
+      tgUpdate({
+        chatId: -1001,
+        isForum: false,
+        from: 42,
+        messageId: 202,
+        text: "ok",
+        replyToMessageId: 200,
+        // replyToFromId deliberately omitted
+      })
+    )
+    expect(ctx.replyToMessageId).toBe(200)
+    expect(ctx.replyToMessageFromId).toBeNull()
+    expect(ctx.replyToMessageIsBot).toBe(false)
   })
 
   test("threadIsolation off collapses all topics in a chat to one session", () => {
