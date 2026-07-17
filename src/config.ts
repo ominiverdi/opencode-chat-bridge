@@ -246,10 +246,7 @@ export function loadConfig(configPath?: string): ChatBridgeConfig {
   
   const searchPaths = configPath 
     ? [configPath]
-    : [
-        path.join(process.cwd(), "chat-bridge.json"),
-        path.join(process.cwd(), "chat-bridge.jsonc"),
-      ]
+    : [path.join(process.cwd(), "chat-bridge.json")]
   
   for (const filePath of searchPaths) {
     if (fs.existsSync(filePath)) {
