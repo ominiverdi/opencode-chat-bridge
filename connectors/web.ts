@@ -31,11 +31,10 @@ import { join } from "path"
 import type { Server, ServerWebSocket } from "bun"
 import {
   ACPClient,
-  type ActivityEvent,
   getConfig,
   BaseConnector,
   type BaseSession,
-  formatToolCallMessage,
+  ToolActivityController,
   shouldShowToolOutput,
   sanitizeServerPaths,
   extractImagePaths,
@@ -371,18 +370,24 @@ class WebConnector extends BaseConnector<WebSession> {
     let buf = ""
     let toolResultsBuf = ""
     let tools = 0
+    let activitySequence = 0
+    const toolActivity = new ToolActivityController(config.toolMessages, {
+      create: async (message) => {
+        const activityId = `${clientId}-${Date.now()}-${++activitySequence}`
+        this.wsSend(clientId, { type: "activity", activityId, message })
+        return activityId
+      },
+      update: async (activityId, message) => {
+        this.wsSend(clientId, { type: "activity_update", activityId, message })
+      },
+    }, {
+      sendEvent: async (message) => { this.wsSend(clientId, { type: "activity", message }) },
+      onToolStart: () => { tools++ },
+    })
 
     const onChunk = (text: string) => {
       buf += text
       this.wsSend(clientId, { type: "chunk", text })
-    }
-
-    const onActivity = (a: ActivityEvent) => {
-      if (a.type === "tool_start") {
-        tools++
-        const message = formatToolCallMessage(a, config.toolMessages)
-        if (message) this.wsSend(clientId, { type: "activity", message })
-      }
     }
 
     const onImage = (img: any) => {
@@ -435,7 +440,8 @@ class WebConnector extends BaseConnector<WebSession> {
     }
 
     client.on("chunk", onChunk)
-    client.on("activity", onActivity)
+    client.on("activity", toolActivity.handleActivity)
+    client.on("tool_activity", toolActivity.handleRevision)
     client.on("image", onImage)
     client.on("update", onUpdate)
     client.on("permission_rejected", onPermission)
@@ -506,8 +512,10 @@ class WebConnector extends BaseConnector<WebSession> {
       })
       this.wsSend(clientId, { type: "done" })
     } finally {
+      await toolActivity.flush()
       client.off("chunk", onChunk)
-      client.off("activity", onActivity)
+      client.off("activity", toolActivity.handleActivity)
+      client.off("tool_activity", toolActivity.handleRevision)
       client.off("image", onImage)
       client.off("update", onUpdate)
       client.off("permission_rejected", onPermission)

@@ -38,14 +38,14 @@ import {
   SimpleFsStorageProvider,
 } from "matrix-bot-sdk"
 
-import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
+import { ACPClient, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
 import { marked } from "marked"
 import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
-  formatToolCallMessage,
+  ToolActivityController,
   shouldShowToolOutput,
   extractImagePaths,
   removeImageMarkers,
@@ -275,6 +275,42 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
     }
   }
 
+  private async createToolActivityMessage(context: MatrixEventContext, text: string): Promise<string | null> {
+    if (!this.matrix) return null
+    const content: Record<string, unknown> = {
+      msgtype: "m.notice",
+      body: `> ${text}`,
+    }
+    if (this.threadIsolation) {
+      const session = this.sessionManager.get(context.sessionId)
+      const lastEventId = session?.lastEventIds.get(context.replyThreadRootId) || context.replyThreadRootId
+      content["m.relates_to"] = buildThreadRelation(context.replyThreadRootId, lastEventId)
+    }
+    const eventId = await this.matrix.sendMessage(context.roomId, content)
+    const session = this.sessionManager.get(context.sessionId)
+    if (this.threadIsolation && session && eventId) {
+      session.lastEventIds.set(context.replyThreadRootId, eventId)
+    }
+    return eventId || null
+  }
+
+  private async updateToolActivityMessage(context: MatrixEventContext, eventId: string, text: string): Promise<void> {
+    if (!this.matrix) return
+    const body = `> ${text}`
+    await this.matrix.sendMessage(context.roomId, {
+      msgtype: "m.notice",
+      body: `* ${body}`,
+      "m.new_content": {
+        msgtype: "m.notice",
+        body,
+      },
+      "m.relates_to": {
+        rel_type: "m.replace",
+        event_id: eventId,
+      },
+    })
+  }
+
   // ---------------------------------------------------------------------------
   // Authentication
   // ---------------------------------------------------------------------------
@@ -438,20 +474,16 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
 
     let responseBuffer = ""
     let toolResultsBuffer = ""
-    let lastActivityMessage = ""
     let toolCallCount = 0
     const sentToolOutputs = new Set<string>()
-
-    const activityHandler = async (activity: ActivityEvent) => {
-      if (activity.type === "tool_start") {
-        toolCallCount++
-        const message = formatToolCallMessage(activity, config.toolMessages)
-        if (message && message !== lastActivityMessage) {
-          lastActivityMessage = message
-          await this.sendNoticeReply(context, `> ${message}`)
-        }
-      }
-    }
+    const toolActivity = new ToolActivityController(config.toolMessages, {
+      create: (text) => this.createToolActivityMessage(context, text),
+      update: (eventId, text) => this.updateToolActivityMessage(context, eventId, text),
+      onError: (error) => this.logError("Failed to update tool activity:", error),
+    }, {
+      sendEvent: (message) => this.sendNoticeReply(context, `> ${message}`),
+      onToolStart: () => { toolCallCount++ },
+    })
 
     const chunkHandler = (text: string) => { responseBuffer += text }
 
@@ -514,7 +546,8 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
       await this.sendNoticeReply(context, `> ${event.message}`)
     }
 
-    client.on("activity", activityHandler)
+    client.on("activity", toolActivity.handleActivity)
+    client.on("tool_activity", toolActivity.handleRevision)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
     client.on("image", imageHandler)
@@ -559,7 +592,9 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
       this.logError(`[FAIL] ${elapsed}s [${context.sessionId}]:`, err)
       await this.sendReply(context, "Sorry, something went wrong processing your request.")
     } finally {
-      client.off("activity", activityHandler)
+      await toolActivity.flush()
+      client.off("activity", toolActivity.handleActivity)
+      client.off("tool_activity", toolActivity.handleRevision)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)

@@ -78,6 +78,7 @@
 
   // DOM refs
   var root, bubble, panel, msgsEl, inputEl, sendBtn, statusEl, thinkingEl
+  var activityEls = Object.create(null)
 
   // ==========================================================================
   // Helpers
@@ -326,6 +327,7 @@
   // ==========================================================================
 
   function renderHistory() {
+    activityEls = Object.create(null)
     // Clear everything except the thinking indicator
     while (msgsEl.firstChild !== thinkingEl) {
       msgsEl.removeChild(msgsEl.firstChild)
@@ -449,12 +451,22 @@
     thinkingEl.classList.remove("oc-think--on")
   }
 
-  function showActivity(text) {
-    // Create a new activity element each time (persists like other bridges)
+  function showActivity(text, activityId) {
     var el = document.createElement("div")
     el.className = "oc-activity"
     el.textContent = "> " + text
     msgsEl.insertBefore(el, thinkingEl)
+    if (activityId) activityEls[activityId] = el
+    scrollDown()
+  }
+
+  function updateActivity(activityId, text) {
+    var el = activityEls[activityId]
+    if (!el) {
+      showActivity(text, activityId)
+      return
+    }
+    el.textContent = "> " + text
     scrollDown()
   }
 
@@ -553,7 +565,11 @@
         break
 
       case "activity":
-        showActivity(d.message)
+        showActivity(d.message, d.activityId)
+        break
+
+      case "activity_update":
+        updateActivity(d.activityId, d.message)
         break
 
       case "tool_output":

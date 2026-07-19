@@ -13,6 +13,7 @@ import {
   formatToolCallMessage,
   resolveToolMessageMode,
   ToolActivityPresenter,
+  ToolActivityController,
   shouldShowToolOutput,
   type BaseSession,
   type SessionStats,
@@ -200,6 +201,29 @@ describe("tool message presentation", () => {
     expect(rendered).toContain("Current: [running] [bash]")
     expect(rendered).toContain("Completed: 1 tool")
     expect(rendered).not.toContain("[read]")
+  })
+
+  test("controller keeps connector event wiring mode-independent", async () => {
+    const events: string[] = []
+    let starts = 0
+    const controller = new ToolActivityController({
+      mode: "events",
+      showCalls: true,
+      showArguments: false,
+      showOutputFor: [],
+    }, {
+      create: async () => "activity-1",
+      update: async () => {},
+    }, {
+      sendEvent: async (message) => { events.push(message) },
+      onToolStart: () => { starts++ },
+    })
+
+    await controller.handleActivity({ type: "tool_start", tool: "read", message: "[read]" })
+    await controller.handleActivity({ type: "tool_start", tool: "read", message: "[read]" })
+
+    expect(starts).toBe(2)
+    expect(events).toEqual(["[read]"])
   })
 
   test("matches configured tool output by name substring", () => {

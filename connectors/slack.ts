@@ -23,13 +23,13 @@
 import fs from "fs"
 import path from "path"
 import { App } from "@slack/bolt"
-import { ACPClient, type ActivityEvent } from "../src"
+import { ACPClient } from "../src"
 import { getConfig } from "../src/config"
 import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
-  formatToolCallMessage,
+  ToolActivityController,
   shouldShowToolOutput,
   extractImagePaths,
   removeImageMarkers,
@@ -450,21 +450,32 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     let client: ACPClient | null = null
     let responseBuffer = ""
     let toolResultsBuffer = ""
-    let lastActivityMessage = ""
     let toolCallCount = 0
     const sentToolOutputs = new Set<string>()
-
-    const activityHandler = async (activity: ActivityEvent) => {
-      if (activity.type === "tool_start" && session) {
+    const toolActivity = new ToolActivityController(config.toolMessages, {
+      create: async (text) => {
+        const result = await slackClient.chat.postMessage({
+          channel: context.channelId,
+          text: `> ${text}`,
+          ...(this.threadIsolation ? { thread_ts: context.replyThreadTs } : {}),
+        })
+        return result.ts || null
+      },
+      update: async (messageTs, text) => {
+        await slackClient.chat.update({
+          channel: context.channelId,
+          ts: messageTs,
+          text: `> ${text}`,
+        })
+      },
+      onError: (error) => this.logError("Failed to update tool activity:", error),
+    }, {
+      sendEvent: (message) => this.sendReply(slackClient, context, `> ${message}`),
+      onToolStart: () => {
         toolCallCount++
-        const message = formatToolCallMessage(activity, config.toolMessages)
-        if (message && message !== lastActivityMessage) {
-          lastActivityMessage = message
-          session.lastActivity = new Date()
-          await this.sendReply(slackClient, context, `> ${message}`)
-        }
-      }
-    }
+        if (session) session.lastActivity = new Date()
+      },
+    })
     const chunkHandler = (text: string) => { responseBuffer += text }
     const updateHandler = async (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
@@ -515,7 +526,8 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       session.inputChars += query.length
 
       client = session.client
-      client.on("activity", activityHandler)
+      client.on("activity", toolActivity.handleActivity)
+      client.on("tool_activity", toolActivity.handleRevision)
       client.on("chunk", chunkHandler)
       client.on("update", updateHandler)
       client.on("permission_rejected", permissionHandler)
@@ -556,7 +568,9 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
       this.logError(`[FAIL] ${elapsed}s [${sessionId}]:`, err)
       await this.sendReply(slackClient, context, "Sorry, something went wrong processing your request.")
     } finally {
-      client?.off("activity", activityHandler)
+      await toolActivity.flush()
+      client?.off("activity", toolActivity.handleActivity)
+      client?.off("tool_activity", toolActivity.handleRevision)
       client?.off("chunk", chunkHandler)
       client?.off("update", updateHandler)
       client?.off("permission_rejected", permissionHandler)

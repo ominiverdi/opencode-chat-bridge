@@ -26,14 +26,13 @@ import makeWASocket, {
 } from "baileys"
 import { Boom } from "@hapi/boom"
 import * as qrcode from "qrcode-terminal"
-import { ACPClient, type ActivityEvent, type ImageContent, type ToolActivityRevision } from "../src"
+import { ACPClient, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
 import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
-  formatToolCallMessage,
-  ToolActivityPresenter,
+  ToolActivityController,
   shouldShowToolOutput,
   extractImagePaths,
   extractDocPaths,
@@ -423,28 +422,16 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     // Track responses
     let responseBuffer = ""
     let toolResultsBuffer = ""
-    let lastActivityMessage = ""
     let toolCallCount = 0
     const sentToolOutputs = new Set<string>()
-    const toolPresenter = new ToolActivityPresenter(config.toolMessages, {
+    const toolActivity = new ToolActivityController(config.toolMessages, {
       create: (text) => this.createToolActivityMessage(chatId, text),
       update: (messageId, text) => this.updateToolActivityMessage(chatId, messageId, text),
       onError: (error) => this.logError("Failed to update tool activity:", error),
+    }, {
+      sendEvent: (message) => this.sendMessage(chatId, `> ${message}`),
+      onToolStart: () => { toolCallCount++ },
     })
-
-    // Activity events
-    const activityHandler = async (activity: ActivityEvent) => {
-      if (activity.type === "tool_start") {
-        toolCallCount++
-        const message = formatToolCallMessage(activity, config.toolMessages, true)
-        if (message && message !== lastActivityMessage) {
-          lastActivityMessage = message
-          await this.sendMessage(chatId, `> ${message}`)
-        }
-      }
-    }
-
-    const toolActivityHandler = (revision: ToolActivityRevision) => toolPresenter.handle(revision)
 
     // Collect text chunks
     const chunkHandler = (text: string) => {
@@ -495,8 +482,8 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     }
 
     // Set up listeners
-    client.on("activity", activityHandler)
-    client.on("tool_activity", toolActivityHandler)
+    client.on("activity", toolActivity.handleActivity)
+    client.on("tool_activity", toolActivity.handleRevision)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
     client.on("image", imageHandler)
@@ -577,9 +564,9 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       }
     } finally {
       if (timeoutId) clearTimeout(timeoutId)
-      await toolPresenter.flush()
-      client.off("activity", activityHandler)
-      client.off("tool_activity", toolActivityHandler)
+      await toolActivity.flush()
+      client.off("activity", toolActivity.handleActivity)
+      client.off("tool_activity", toolActivity.handleRevision)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)

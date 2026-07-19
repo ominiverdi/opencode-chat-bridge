@@ -37,6 +37,7 @@ export {
   formatToolCallMessage,
   resolveToolMessageMode,
   ToolActivityPresenter,
+  ToolActivityController,
   shouldShowToolOutput,
   type BaseSession,
   type SessionStats,

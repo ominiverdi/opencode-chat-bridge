@@ -22,12 +22,12 @@ import {
   type TextBasedChannel,
   AttachmentBuilder,
 } from "discord.js"
-import { ACPClient, type ActivityEvent } from "../src"
+import { ACPClient } from "../src"
 import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
-  formatToolCallMessage,
+  ToolActivityController,
   shouldShowToolOutput,
   extractImagePaths,
   removeImageMarkers,
@@ -230,7 +230,6 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     // Track response chunks
     let responseBuffer = ""
     let toolResultsBuffer = ""
-    let lastActivityMessage = ""
     let toolCallCount = 0
     const sentToolOutputs = new Set<string>()
 
@@ -238,17 +237,23 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     const channel = message.channel
     if (!("send" in channel)) return
 
-    // Activity events - show what the AI is doing
-    const activityHandler = async (activity: ActivityEvent) => {
-      if (activity.type === "tool_start") {
-        toolCallCount++
-        const activityMessage = formatToolCallMessage(activity, config.toolMessages)
-        if (activityMessage && activityMessage !== lastActivityMessage) {
-          lastActivityMessage = activityMessage
-          await channel.send(`> ${activityMessage}`)
-        }
-      }
-    }
+    const activityMessages = new Map<string, any>()
+    const toolActivity = new ToolActivityController(config.toolMessages, {
+      create: async (text) => {
+        const sent = await channel.send(`> ${text}`)
+        activityMessages.set(sent.id, sent)
+        return sent.id
+      },
+      update: async (messageId, text) => {
+        const sent = activityMessages.get(messageId)
+        if (!sent) throw new Error("Discord activity message is unavailable")
+        await sent.edit(`> ${text}`)
+      },
+      onError: (error) => this.logError("Failed to update tool activity:", error),
+    }, {
+      sendEvent: async (activityMessage) => { await channel.send(`> ${activityMessage}`) },
+      onToolStart: () => { toolCallCount++ },
+    })
 
     // Collect text chunks
     const chunkHandler = (text: string) => {
@@ -293,7 +298,8 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     }
 
     // Set up listeners
-    client.on("activity", activityHandler)
+    client.on("activity", toolActivity.handleActivity)
+    client.on("tool_activity", toolActivity.handleRevision)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
     client.on("permission_rejected", permissionHandler)
@@ -344,7 +350,9 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
       this.logError(`[FAIL] ${elapsed}s:`, err)
       await message.reply("Sorry, something went wrong processing your request.")
     } finally {
-      client.off("activity", activityHandler)
+      await toolActivity.flush()
+      client.off("activity", toolActivity.handleActivity)
+      client.off("tool_activity", toolActivity.handleRevision)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("permission_rejected", permissionHandler)

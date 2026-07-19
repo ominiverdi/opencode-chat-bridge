@@ -22,13 +22,13 @@
 
 import fs from "fs"
 import path from "path"
-import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
+import { ACPClient, type ImageContent } from "../src"
 import { getConfig } from "../src/config"
 import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
-  formatToolCallMessage,
+  ToolActivityController,
   shouldShowToolOutput,
   extractImagePaths,
   removeImageMarkers,
@@ -564,20 +564,25 @@ export class MattermostConnector extends BaseConnector<ChannelSession> {
     // Track response chunks
     let responseBuffer = ""
     let toolResultsBuffer = ""
-    let lastActivityMessage = ""
     let toolCallCount = 0
     const sentToolOutputs = new Set<string>()
-
-    const activityHandler = async (activity: ActivityEvent) => {
-      if (activity.type === "tool_start") {
-        toolCallCount++
-        const message = formatToolCallMessage(activity, config.toolMessages)
-        if (message && message !== lastActivityMessage) {
-          lastActivityMessage = message
-          await this.sendReply(context, `> ${message}`)
-        }
-      }
-    }
+    const toolActivity = new ToolActivityController(config.toolMessages, {
+      create: async (text) => {
+        const post = await mmApi("POST", "/posts", {
+          channel_id: context.channelId,
+          message: `> ${text}`,
+          ...(this.threadIsolation ? { root_id: context.replyRootId } : {}),
+        })
+        return post?.id || null
+      },
+      update: async (postId, text) => {
+        await mmApi("PUT", `/posts/${postId}/patch`, { message: `> ${text}` })
+      },
+      onError: (error) => this.logError("Failed to update tool activity:", error),
+    }, {
+      sendEvent: (message) => this.sendReply(context, `> ${message}`),
+      onToolStart: () => { toolCallCount++ },
+    })
 
     const chunkHandler = (text: string) => {
       responseBuffer += text
@@ -642,7 +647,8 @@ export class MattermostConnector extends BaseConnector<ChannelSession> {
       await this.sendReply(context, `> ${event.message}`)
     }
 
-    client.on("activity", activityHandler)
+    client.on("activity", toolActivity.handleActivity)
+    client.on("tool_activity", toolActivity.handleRevision)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
     client.on("image", imageHandler)
@@ -688,7 +694,9 @@ export class MattermostConnector extends BaseConnector<ChannelSession> {
       this.logError(`[FAIL] ${elapsed}s [${context.sessionId}]:`, err)
       await this.sendReply(context, "Sorry, something went wrong processing your request.")
     } finally {
-      client.off("activity", activityHandler)
+      await toolActivity.flush()
+      client.off("activity", toolActivity.handleActivity)
+      client.off("tool_activity", toolActivity.handleRevision)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)

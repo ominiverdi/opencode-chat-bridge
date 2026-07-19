@@ -85,6 +85,7 @@ describe("web connector HTTP", () => {
     const js = await res.text()
     expect(js).toContain("OpenCode Chat Bridge")
     expect(js).toContain("__ocWidgetLoaded")
+    expect(js).toContain('case "activity_update"')
   })
 
   test("GET /widget.js includes CORS header", async () => {

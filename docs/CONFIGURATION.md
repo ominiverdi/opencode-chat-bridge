@@ -448,8 +448,8 @@ these settings affect presentation only.
 - `maxTraceEntries` bounds each `trace` message. Longer traces continue in
   additional editable messages without discarding earlier calls.
 
-Editable `status` and `trace` messages are currently supported by Telegram and
-WhatsApp. Other connectors safely fall back to `events` presentation.
+Editable `status` and `trace` messages are supported by WhatsApp, Telegram,
+Slack, Discord, Mattermost, Matrix, and Web. The CLI retains event-style output.
 
 For example, to show tool calls and output from Bash and time MCP tools:
 

@@ -199,6 +199,43 @@ export class ToolActivityPresenter {
   }
 }
 
+export interface ToolActivityControllerOptions {
+  sendEvent(message: string): Promise<void>
+  onToolStart?(): void
+}
+
+/** Shared ACP listener controller; connectors only provide send/edit adapters. */
+export class ToolActivityController {
+  private lastEventMessage = ""
+  private presenter: ToolActivityPresenter
+
+  constructor(
+    private options: ToolMessagesConfig,
+    adapter: EditableToolMessageAdapter,
+    private callbacks: ToolActivityControllerOptions
+  ) {
+    this.presenter = new ToolActivityPresenter(options, adapter)
+  }
+
+  handleActivity = async (activity: ActivityEvent): Promise<void> => {
+    if (activity.type !== "tool_start") return
+    this.callbacks.onToolStart?.()
+    const message = formatToolCallMessage(activity, this.options, true)
+    if (message && message !== this.lastEventMessage) {
+      this.lastEventMessage = message
+      await this.callbacks.sendEvent(message)
+    }
+  }
+
+  handleRevision = (revision: ToolActivityRevision): void => {
+    this.presenter.handle(revision)
+  }
+
+  async flush(): Promise<void> {
+    await this.presenter.flush()
+  }
+}
+
 /** Whether output from a tool should be forwarded to the chat channel. */
 export function shouldShowToolOutput(
   toolName: string,
