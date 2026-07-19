@@ -132,6 +132,24 @@ describe("config", () => {
       expect(config.matrix.autoJoin).toBe(true) // From default
     })
 
+    test("normalizes invalid tool message settings", () => {
+      fs.writeFileSync(
+        path.join(testDir, "chat-bridge.json"),
+        JSON.stringify({
+          toolMessages: {
+            mode: "future-mode",
+            maxTraceEntries: 0,
+          },
+        })
+      )
+      process.chdir(testDir)
+
+      const config = loadConfig()
+
+      expect(config.toolMessages.mode).toBe("events")
+      expect(config.toolMessages.maxTraceEntries).toBe(20)
+    })
+
     test("loads from custom path", () => {
       const customPath = path.join(testDir, "custom-config.json")
       const configContent = { botName: "custom-path-bot" }

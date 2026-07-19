@@ -445,7 +445,8 @@ these settings affect presentation only.
 - `showOutputFor` lists tool-name substrings whose output is returned to chat.
   The default `["bash"]` provides progress from shell commands. Use an empty
   list to suppress all direct tool output.
-- `maxTraceEntries` bounds the calls retained in a `trace` message.
+- `maxTraceEntries` bounds each `trace` message. Longer traces continue in
+  additional editable messages without discarding earlier calls.
 
 Editable `status` and `trace` messages are currently supported by Telegram and
 WhatsApp. Other connectors safely fall back to `events` presentation.

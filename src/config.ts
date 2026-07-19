@@ -279,6 +279,22 @@ function deepMerge<T>(target: T, source: Partial<T>): T {
   return result
 }
 
+const TOOL_MESSAGE_MODES = new Set<ToolMessageMode>(["off", "events", "status", "trace"])
+
+function normalizeToolMessages(config: ChatBridgeConfig): void {
+  const mode = config.toolMessages.mode
+  if (!mode || !TOOL_MESSAGE_MODES.has(mode)) {
+    if (mode) console.warn(`[CONFIG] Invalid toolMessages.mode "${mode}"; using "events"`)
+    config.toolMessages.mode = "events"
+  }
+
+  const maxEntries = config.toolMessages.maxTraceEntries
+  if (!Number.isInteger(maxEntries) || (maxEntries || 0) < 1) {
+    console.warn("[CONFIG] Invalid toolMessages.maxTraceEntries; using 20")
+    config.toolMessages.maxTraceEntries = 20
+  }
+}
+
 let cachedConfig: ChatBridgeConfig | null = null
 
 /**
@@ -310,6 +326,7 @@ export function loadConfig(configPath?: string): ChatBridgeConfig {
 
         const substituted = substituteEnvVars(parsed)
         cachedConfig = deepMerge(defaultConfig, substituted)
+        normalizeToolMessages(cachedConfig)
         console.log(`[CONFIG] Loaded from ${filePath}`)
         return cachedConfig
       } catch (err) {
@@ -319,7 +336,8 @@ export function loadConfig(configPath?: string): ChatBridgeConfig {
   }
   
   console.log("[CONFIG] No config file found, using defaults")
-  cachedConfig = defaultConfig
+  cachedConfig = deepMerge(defaultConfig, {})
+  normalizeToolMessages(cachedConfig)
   return cachedConfig
 }
 
