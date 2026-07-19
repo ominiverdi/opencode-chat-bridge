@@ -21,15 +21,15 @@ Issue [#1](https://github.com/ominiverdi/opencode-chat-bridge/issues/1) raised t
 
 ### Trade-offs
 
-| Aspect | Simple Login | Application Service |
-|--------|--------------|---------------------|
-| Setup complexity | Username/password | Registration YAML + homeserver config |
-| Server requirements | Any Matrix account | Homeserver admin access required |
-| Accessibility | Works on matrix.org, any public server | Self-hosted servers only |
-| Virtual users | No | Yes |
-| Rate limits | Standard | Exempt |
-| Event delivery | Polling (sync) | HTTP push (webhooks) |
-| Best for | Bots, assistants | Protocol bridges |
+| Aspect              | Simple Login                           | Application Service                   |
+| ------------------- | -------------------------------------- | ------------------------------------- |
+| Setup complexity    | Username/password                      | Registration YAML + homeserver config |
+| Server requirements | Any Matrix account                     | Homeserver admin access required      |
+| Accessibility       | Works on matrix.org, any public server | Self-hosted servers only              |
+| Virtual users       | No                                     | Yes                                   |
+| Rate limits         | Standard                               | Exempt                                |
+| Event delivery      | Polling (sync)                         | HTTP push (webhooks)                  |
+| Best for            | Bots, assistants                       | Protocol bridges                      |
 
 ### Decision
 
