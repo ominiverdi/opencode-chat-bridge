@@ -177,6 +177,66 @@ docker-compose up
 
 See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for detailed instructions.
 
+## Installation (offline, no Docker)
+
+The repo ships a `Makefile` that installs the project using only files
+already in the checkout -- no Docker images, no registries, no network.
+It assumes a populated `./node_modules/` (typically bundled in the
+release tarball; if you only have a git checkout, populate it once with
+`bun install --frozen-lockfile`).
+
+The wrappers invoke `bun`; have a `bun` runtime on `$PATH` after
+installing. OpenCode itself is configured independently.
+
+### Per-user
+
+```bash
+make install-user
+```
+
+Lands in:
+
+- `~/.local/share/opencode-chat-bridge/` -- project copy (`connectors/`,
+  `src/`, `node_modules/`, `package.json`, `bun.lock`, `tsconfig.json`)
+- `~/.local/bin/opencode-chat-bridge-{matrix,slack,telegram,discord,whatsapp,mattermost,web}` -- one wrapper per connector
+
+Runtime state (`.env`, `logs/`, `state/`, `.whatsapp-auth/`,
+`matrix-store/`) is created inside the share dir on first start. Ensure
+`~/.local/bin` is on `PATH`, then run e.g. `opencode-chat-bridge-matrix`.
+
+### Systemwide
+
+```bash
+sudo make install-system                                    # PREFIX=/usr/local
+make PREFIX=/opt/opencode-chat-bridge install-system        # custom prefix
+```
+
+Lands in:
+
+- `$(PREFIX)/share/opencode-chat-bridge/` -- project copy
+- `$(PREFIX)/bin/opencode-chat-bridge-{matrix,slack,telegram,discord,whatsapp,mattermost,web}` -- wrappers
+
+Same on-disk layout as the per-user install, just relocated.
+
+### Uninstall
+
+```bash
+make uninstall-user          # per-user (no root)
+sudo make uninstall-system   # systemwide
+```
+
+These remove only the share directory and the `opencode-chat-bridge-*`
+wrappers created by the matching install. Your checkout and any user
+config (`chat-bridge.json`, `opencode.json`, `.env`) stay intact.
+
+### Variables
+
+Override on the command line, e.g. `make PREFIX=/opt install-system`.
+
+- `PREFIX` -- default `/usr/local`. Used by `install-system` and `uninstall-system`.
+- `USER_PREFIX` -- default `~/.local`. Used by `install-user` and `uninstall-user`.
+- `DESTDIR` -- default unset. Prepended to every install path; useful for packaging.
+
 ## Usage
 
 Use the trigger prefix (default: `!oc`) or mention the bot:
