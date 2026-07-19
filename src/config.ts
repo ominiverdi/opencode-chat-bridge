@@ -109,13 +109,22 @@ export interface SessionPickerConfig {
   mirrorIntervalSeconds: number
 }
 
+export interface ToolMessagesConfig {
+  /** Send tool call notices to the chat channel. */
+  showCalls: boolean
+  /** Include compact tool arguments in call notices. */
+  showArguments: boolean
+  /** Tool name substrings whose output is forwarded to chat. */
+  showOutputFor: string[]
+}
+
 export interface ChatBridgeConfig {
   botName: string
   trigger: string
   rateLimitSeconds: number
   sessionStorePath: string
   defaultAgent: string | null
-  streamTools: string[]  // Tools to stream output for (e.g., ["bash"]), empty = none
+  toolMessages: ToolMessagesConfig
   sessionPicker: SessionPickerConfig
   acp: ACPConfig
   matrix: MatrixConfig
@@ -134,7 +143,11 @@ const defaultConfig: ChatBridgeConfig = {
   rateLimitSeconds: 5,
   sessionStorePath: "./.opencode/chat-sessions.json",
   defaultAgent: null,
-  streamTools: ["bash"],  // Only stream bash output by default
+  toolMessages: {
+    showCalls: true,
+    showArguments: false,
+    showOutputFor: ["bash"],
+  },
   sessionPicker: {
     enabled: false,
     connectors: [],
@@ -273,6 +286,18 @@ export function loadConfig(configPath?: string): ChatBridgeConfig {
       try {
         const content = fs.readFileSync(filePath, "utf-8")
         const parsed = JSON.parse(content)
+
+        // Backward compatibility for the former top-level streamTools option.
+        // The public configuration now groups all chat-visible tool activity
+        // under toolMessages.
+        if (Array.isArray(parsed.streamTools)) {
+          parsed.toolMessages = {
+            ...(parsed.toolMessages || {}),
+            showOutputFor: parsed.toolMessages?.showOutputFor ?? parsed.streamTools,
+          }
+          delete parsed.streamTools
+        }
+
         const substituted = substituteEnvVars(parsed)
         cachedConfig = deepMerge(defaultConfig, substituted)
         console.log(`[CONFIG] Loaded from ${filePath}`)

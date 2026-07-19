@@ -35,6 +35,8 @@ import {
   CommandHandler,
   type BaseSession,
   parseCsvList,
+  formatToolCallMessage,
+  shouldShowToolOutput,
   extractImagePaths,
   extractDocPaths,
   removeImageMarkers,
@@ -1159,9 +1161,10 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
       const activityHandler = async (activity: ActivityEvent) => {
         if (activity.type === "tool_start") {
           toolCallCount++
-          if (activity.message !== lastActivityMessage) {
-            lastActivityMessage = activity.message
-            await this.sendReply(context, `> ${activity.message}`)
+          const message = formatToolCallMessage(activity, config.toolMessages)
+          if (message && message !== lastActivityMessage) {
+            lastActivityMessage = message
+            await this.sendReply(context, `> ${message}`)
           }
         }
       }
@@ -1173,8 +1176,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
           toolResultsBuffer += update.toolResult
 
           const toolName = update.toolName || ""
-          const streamTools = config.streamTools || ["bash"]
-          const shouldShow = streamTools.some((t: string) => toolName.includes(t))
+          const shouldShow = shouldShowToolOutput(toolName, config.toolMessages)
           if (!shouldShow) return
 
           const maxLen = 2000
@@ -1198,8 +1200,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
         // Stream partial tool output
         if (update.type === "tool_output_delta" && update.partialOutput) {
           const toolName = update.toolName || ""
-          const streamTools = config.streamTools || ["bash"]
-          const shouldStream = streamTools.some((t: string) => toolName.includes(t))
+          const shouldStream = shouldShowToolOutput(toolName, config.toolMessages)
           if (!shouldStream) return
 
           const output = update.partialOutput.trim()

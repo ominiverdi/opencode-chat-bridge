@@ -43,6 +43,11 @@ describe("config", () => {
       expect(config.botName).toBe("oc")
       expect(config.trigger).toBe("!oc")
       expect(config.rateLimitSeconds).toBe(5)
+      expect(config.toolMessages).toEqual({
+        showCalls: true,
+        showArguments: false,
+        showOutputFor: ["bash"],
+      })
       expect(config.matrix.enabled).toBe(false)
       expect(config.whatsapp.enabled).toBe(false)
     })
@@ -64,6 +69,23 @@ describe("config", () => {
       expect(config.botName).toBe("custom-bot")
       expect(config.trigger).toBe("!bot")
       expect(config.rateLimitSeconds).toBe(10)
+    })
+
+    test("migrates legacy streamTools into toolMessages", () => {
+      fs.writeFileSync(
+        path.join(testDir, "chat-bridge.json"),
+        JSON.stringify({ streamTools: ["bash", "weather"] })
+      )
+      process.chdir(testDir)
+
+      const config = loadConfig()
+
+      expect(config.toolMessages).toEqual({
+        showCalls: true,
+        showArguments: false,
+        showOutputFor: ["bash", "weather"],
+      })
+      expect("streamTools" in config).toBe(false)
     })
 
     test("merges with defaults for partial config", () => {

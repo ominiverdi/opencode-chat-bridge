@@ -2,7 +2,11 @@
   "botName": "opencode",
   "trigger": "!oc",
   "rateLimitSeconds": 5,
-  "streamTools": ["bash"],
+  "toolMessages": {
+    "showCalls": true,
+    "showArguments": false,
+    "showOutputFor": ["bash"]
+  },
   "sessionStorePath": "./.opencode/chat-sessions.json",
   "defaultAgent": null,
   "sessionPicker": {

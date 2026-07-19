@@ -89,6 +89,7 @@ export interface ActivityEvent {
   type: "tool_start" | "tool_end" | "searching" | "fetching" | "processing"
   tool?: string
   message: string
+  description?: string
   details?: any
 }
 

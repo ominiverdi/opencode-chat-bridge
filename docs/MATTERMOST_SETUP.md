@@ -241,9 +241,9 @@ split at newline boundaries into multiple messages.
 
 ### Tool Output Streaming
 
-When `streamTools` includes a tool name (default: `["bash"]`), the tool's output
-is streamed to chat in real-time during execution. This is useful for long-running
-commands where you want to see progress.
+When `toolMessages.showOutputFor` includes a tool name (default: `["bash"]`),
+the tool's output is streamed to chat during execution. This is useful for
+long-running commands where you want to see progress.
 
 ## Running as a Service
 

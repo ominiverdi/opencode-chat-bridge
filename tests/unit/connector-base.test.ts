@@ -10,9 +10,60 @@ import {
   CommandHandler,
   BaseConnector,
   parseCsvList,
+  formatToolCallMessage,
+  shouldShowToolOutput,
   type BaseSession,
   type SessionStats,
 } from "../../src/connector-base"
+
+// =============================================================================
+// Tool message presentation
+// =============================================================================
+
+describe("tool message presentation", () => {
+  const activity = {
+    type: "tool_start" as const,
+    tool: "mcp__time__get_current_time",
+    message: "timezone=Europe/Madrid [mcp__time__get_current_time]",
+    description: "timezone=Europe/Madrid",
+    details: { timezone: "Europe/Madrid" },
+  }
+
+  test("hides calls when disabled", () => {
+    expect(formatToolCallMessage(activity, {
+      showCalls: false,
+      showArguments: false,
+      showOutputFor: ["bash"],
+    })).toBeNull()
+  })
+
+  test("shows only the tool name by default", () => {
+    expect(formatToolCallMessage(activity, {
+      showCalls: true,
+      showArguments: false,
+      showOutputFor: ["bash"],
+    })).toBe("[mcp__time__get_current_time]")
+  })
+
+  test("shows compact arguments when enabled", () => {
+    expect(formatToolCallMessage(activity, {
+      showCalls: true,
+      showArguments: true,
+      showOutputFor: ["bash"],
+    })).toBe("timezone=Europe/Madrid [mcp__time__get_current_time]")
+  })
+
+  test("matches configured tool output by name substring", () => {
+    const options = {
+      showCalls: true,
+      showArguments: false,
+      showOutputFor: ["bash", "mcp__time"],
+    }
+    expect(shouldShowToolOutput("bash", options)).toBe(true)
+    expect(shouldShowToolOutput("mcp__time__get_current_time", options)).toBe(true)
+    expect(shouldShowToolOutput("read", options)).toBe(false)
+  })
+})
 
 // =============================================================================
 // RateLimiter

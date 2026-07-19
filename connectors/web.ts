@@ -35,6 +35,8 @@ import {
   getConfig,
   BaseConnector,
   type BaseSession,
+  formatToolCallMessage,
+  shouldShowToolOutput,
   sanitizeServerPaths,
   extractImagePaths,
   removeImageMarkers,
@@ -366,7 +368,6 @@ class WebConnector extends BaseConnector<WebSession> {
     session.inputChars += query.length
 
     const client = session.client
-    const streamTools = config.streamTools || ["bash"]
     let buf = ""
     let toolResultsBuf = ""
     let tools = 0
@@ -379,7 +380,8 @@ class WebConnector extends BaseConnector<WebSession> {
     const onActivity = (a: ActivityEvent) => {
       if (a.type === "tool_start") {
         tools++
-        this.wsSend(clientId, { type: "activity", message: a.message })
+        const message = formatToolCallMessage(a, config.toolMessages)
+        if (message) this.wsSend(clientId, { type: "activity", message })
       }
     }
 
@@ -401,7 +403,7 @@ class WebConnector extends BaseConnector<WebSession> {
 
         // Show tool results for configured tools (e.g. bash output)
         const toolName = update.toolName || ""
-        const shouldShow = streamTools.some((t: string) => toolName.includes(t))
+        const shouldShow = shouldShowToolOutput(toolName, config.toolMessages)
         if (shouldShow) {
           const maxLen = 2000
           const result = update.toolResult.length > maxLen
@@ -417,7 +419,7 @@ class WebConnector extends BaseConnector<WebSession> {
       // Stream partial tool output in real-time (e.g. long bash commands)
       if (update.type === "tool_output_delta" && update.partialOutput) {
         const toolName = update.toolName || ""
-        const shouldStream = streamTools.some((t: string) => toolName.includes(t))
+        const shouldStream = shouldShowToolOutput(toolName, config.toolMessages)
         if (shouldStream) {
           const output = update.partialOutput.trim()
           if (output) {

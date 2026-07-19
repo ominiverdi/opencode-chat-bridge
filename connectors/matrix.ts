@@ -45,6 +45,8 @@ import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
+  formatToolCallMessage,
+  shouldShowToolOutput,
   extractImagePaths,
   removeImageMarkers,
   sanitizeServerPaths,
@@ -443,9 +445,10 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
     const activityHandler = async (activity: ActivityEvent) => {
       if (activity.type === "tool_start") {
         toolCallCount++
-        if (activity.message !== lastActivityMessage) {
-          lastActivityMessage = activity.message
-          await this.sendNoticeReply(context, `> ${activity.message}`)
+        const message = formatToolCallMessage(activity, config.toolMessages)
+        if (message && message !== lastActivityMessage) {
+          lastActivityMessage = message
+          await this.sendNoticeReply(context, `> ${message}`)
         }
       }
     }
@@ -457,11 +460,10 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
         toolResultsBuffer += update.toolResult
 
         const toolName = update.toolName || ""
-        const streamTools = config.streamTools || ["bash"]
-        const shouldShow = streamTools.some((t: string) => toolName.includes(t))
+        const shouldShow = shouldShowToolOutput(toolName, config.toolMessages)
 
         if (!shouldShow) {
-          this.log(`[RESULT] Skipping ${toolName} result (not in streamTools)`)
+          this.log(`[RESULT] Skipping ${toolName} result (not in toolMessages.showOutputFor)`)
           return
         }
 
@@ -486,8 +488,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
 
       if (update.type === "tool_output_delta" && update.partialOutput) {
         const toolName = update.toolName || ""
-        const streamTools = config.streamTools || ["bash"]
-        const shouldStream = streamTools.some((t: string) => toolName.includes(t))
+        const shouldStream = shouldShowToolOutput(toolName, config.toolMessages)
 
         if (shouldStream) {
           const output = update.partialOutput.trim()

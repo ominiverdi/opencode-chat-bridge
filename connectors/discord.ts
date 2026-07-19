@@ -27,6 +27,8 @@ import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
+  formatToolCallMessage,
+  shouldShowToolOutput,
   extractImagePaths,
   removeImageMarkers,
   sanitizeServerPaths,
@@ -230,6 +232,7 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
     let toolCallCount = 0
+    const sentToolOutputs = new Set<string>()
 
     // Get sendable channel
     const channel = message.channel
@@ -239,9 +242,10 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
     const activityHandler = async (activity: ActivityEvent) => {
       if (activity.type === "tool_start") {
         toolCallCount++
-        if (activity.message !== lastActivityMessage) {
-          lastActivityMessage = activity.message
-          await channel.send(`> ${activity.message}`)
+        const activityMessage = formatToolCallMessage(activity, config.toolMessages)
+        if (activityMessage && activityMessage !== lastActivityMessage) {
+          lastActivityMessage = activityMessage
+          await channel.send(`> ${activityMessage}`)
         }
       }
     }
@@ -251,10 +255,34 @@ class DiscordConnector extends BaseConnector<ChannelSession> {
       responseBuffer += text
     }
 
-    // Collect tool results (may contain images)
-    const updateHandler = (update: any) => {
+    // Collect tool results (may contain images) and optional chat output.
+    const updateHandler = async (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
+        const toolName = update.toolName || ""
+        if (!shouldShowToolOutput(toolName, config.toolMessages)) return
+
+        const result = update.toolResult.length > 2000
+          ? update.toolResult.slice(0, 2000) + "\n... (truncated)"
+          : update.toolResult
+        const output = result.trim()
+        const key = output.slice(0, 100)
+        if (output && !sentToolOutputs.has(key)) {
+          sentToolOutputs.add(key)
+          await channel.send(output)
+        }
+      }
+
+      if (update.type === "tool_output_delta" && update.partialOutput) {
+        const toolName = update.toolName || ""
+        if (!shouldShowToolOutput(toolName, config.toolMessages)) return
+
+        const output = update.partialOutput.trim()
+        const key = output.slice(0, 100)
+        if (output && !sentToolOutputs.has(key)) {
+          sentToolOutputs.add(key)
+          await channel.send(output)
+        }
       }
     }
 

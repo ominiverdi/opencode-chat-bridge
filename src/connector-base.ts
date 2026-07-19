@@ -9,8 +9,8 @@
 import fs from "fs"
 import path from "path"
 import { createHash } from "crypto"
-import { ACPClient, type ACPSessionInfo, type LoadedSessionHistoryItem, type OpenCodeCommand } from "./acp-client"
-import { getConfig, type ACPConfig } from "./config"
+import { ACPClient, type ACPSessionInfo, type ActivityEvent, type LoadedSessionHistoryItem, type OpenCodeCommand } from "./acp-client"
+import { getConfig, type ACPConfig, type ToolMessagesConfig } from "./config"
 import { ACPSessionStore } from "./session-store"
 import { 
   getSessionDir, 
@@ -21,6 +21,32 @@ import {
   copyOpenCodeConfig,
   copyACPProfile,
 } from "./session-utils"
+
+// =============================================================================
+// Tool message presentation
+// =============================================================================
+
+/** Format a tool-start event for a chat channel according to presentation policy. */
+export function formatToolCallMessage(
+  activity: ActivityEvent,
+  options: ToolMessagesConfig
+): string | null {
+  if (activity.type !== "tool_start" || !options.showCalls) return null
+
+  const toolName = activity.tool || "unknown"
+  if (options.showArguments && activity.description?.trim()) {
+    return `${activity.description.trim()} [${toolName}]`
+  }
+  return `[${toolName}]`
+}
+
+/** Whether output from a tool should be forwarded to the chat channel. */
+export function shouldShowToolOutput(
+  toolName: string,
+  options: ToolMessagesConfig
+): boolean {
+  return options.showOutputFor.some((name) => toolName.includes(name))
+}
 
 // =============================================================================
 // Types

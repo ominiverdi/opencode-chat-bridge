@@ -414,46 +414,53 @@ Format as a markdown table for chat readability.
 - The `.opencode/` directory is gitignored by default
 - Skills require both `skill: allow` permission and the symlink setup
 
-## Streaming Tool Output
+## Tool Messages
 
-When tools execute, their output can be streamed to chat in real-time. This is
-useful for long-running commands like bash scripts where you want to see progress.
-
-### streamTools Configuration
-
-The `streamTools` option in `chat-bridge.json` controls which tools have their
-output streamed during execution:
+`toolMessages` controls which tool activity the bridge returns to the chat
+channel. Tool authorization remains part of the ACP backend security profile;
+these settings affect presentation only.
 
 ```json
 {
-  "streamTools": ["bash"]
+  "toolMessages": {
+    "showCalls": true,
+    "showArguments": false,
+    "showOutputFor": ["bash"]
+  }
 }
 ```
 
-**Default:** `["bash"]` - Only bash tool output is streamed.
+- `showCalls` sends a notice such as `[bash]` or `[read]` when a tool starts.
+- `showArguments` adds up to three compact arguments to each call notice.
+  Arguments can contain local paths, queries, URLs, or other sensitive input,
+  so the default is `false`.
+- `showOutputFor` lists tool-name substrings whose output is returned to chat.
+  The default `["bash"]` provides progress from shell commands. Use an empty
+  list to suppress all direct tool output.
 
-**How it works:**
-- Tools in the list emit output as it happens (real-time streaming)
-- Tools NOT in the list have their output suppressed during execution
-- Final results are still shown in the AI's response
-
-**Example configurations:**
+For example, to show tool calls and output from Bash and time MCP tools:
 
 ```json
-// Stream only bash (default)
-{ "streamTools": ["bash"] }
-
-// Stream bash and weather tools
-{ "streamTools": ["bash", "weather"] }
-
-// Disable all streaming (quiet mode)
-{ "streamTools": [] }
+{
+  "toolMessages": {
+    "showCalls": true,
+    "showArguments": false,
+    "showOutputFor": ["bash", "mcp__time"]
+  }
+}
 ```
 
-**Why configure this?**
-- Some tools produce verbose intermediate output you don't want to see
-- Weather/time tools return data that the AI summarizes better
-- Bash commands benefit from real-time output for long operations
+To show only the agent's final response:
+
+```json
+{
+  "toolMessages": {
+    "showCalls": false,
+    "showArguments": false,
+    "showOutputFor": []
+  }
+}
+```
 
 ## Matrix HTML Formatting
 

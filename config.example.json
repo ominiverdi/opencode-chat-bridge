@@ -1,5 +1,11 @@
 {
   "$schema": "./config.schema.json",
+
+  "toolMessages": {
+    "showCalls": true,
+    "showArguments": false,
+    "showOutputFor": ["bash"]
+  },
   
   "matrix": {
     "enabled": true,

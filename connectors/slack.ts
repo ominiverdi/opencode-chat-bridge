@@ -29,6 +29,8 @@ import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
+  formatToolCallMessage,
+  shouldShowToolOutput,
   extractImagePaths,
   removeImageMarkers,
   sanitizeServerPaths,
@@ -450,21 +452,47 @@ export class SlackConnector extends BaseConnector<ChannelSession> {
     let toolResultsBuffer = ""
     let lastActivityMessage = ""
     let toolCallCount = 0
+    const sentToolOutputs = new Set<string>()
 
     const activityHandler = async (activity: ActivityEvent) => {
       if (activity.type === "tool_start" && session) {
         toolCallCount++
-        if (activity.message !== lastActivityMessage) {
-          lastActivityMessage = activity.message
+        const message = formatToolCallMessage(activity, config.toolMessages)
+        if (message && message !== lastActivityMessage) {
+          lastActivityMessage = message
           session.lastActivity = new Date()
-          await this.sendReply(slackClient, context, `> ${activity.message}`)
+          await this.sendReply(slackClient, context, `> ${message}`)
         }
       }
     }
     const chunkHandler = (text: string) => { responseBuffer += text }
-    const updateHandler = (update: any) => {
+    const updateHandler = async (update: any) => {
       if (update.type === "tool_result" && update.toolResult) {
         toolResultsBuffer += update.toolResult
+        const toolName = update.toolName || ""
+        if (!shouldShowToolOutput(toolName, config.toolMessages)) return
+
+        const result = update.toolResult.length > 2000
+          ? update.toolResult.slice(0, 2000) + "\n... (truncated)"
+          : update.toolResult
+        const output = result.trim()
+        const key = output.slice(0, 100)
+        if (output && !sentToolOutputs.has(key)) {
+          sentToolOutputs.add(key)
+          await this.sendReply(slackClient, context, output)
+        }
+      }
+
+      if (update.type === "tool_output_delta" && update.partialOutput) {
+        const toolName = update.toolName || ""
+        if (!shouldShowToolOutput(toolName, config.toolMessages)) return
+
+        const output = update.partialOutput.trim()
+        const key = output.slice(0, 100)
+        if (output && !sentToolOutputs.has(key)) {
+          sentToolOutputs.add(key)
+          await this.sendReply(slackClient, context, output)
+        }
       }
     }
     const permissionHandler = async (event: { permission: string; path: string | null; message: string }) => {
