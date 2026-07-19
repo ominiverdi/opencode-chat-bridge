@@ -109,6 +109,75 @@ describe("tool message presentation", () => {
     expect(final).not.toContain("[Search test files]")
   })
 
+  test("continues long traces in additional editable messages", async () => {
+    const created: string[] = []
+    const updated: Array<{ id: string; text: string }> = []
+    const presenter = new ToolActivityPresenter({
+      mode: "trace",
+      showCalls: true,
+      showArguments: false,
+      showOutputFor: [],
+      maxTraceEntries: 2,
+    }, {
+      create: async (text) => {
+        created.push(text)
+        return `message-${created.length}`
+      },
+      update: async (id, text) => updated.push({ id, text }),
+    })
+
+    presenter.handle({ toolCallId: "call-1", tool: "read", status: "completed" })
+    presenter.handle({ toolCallId: "call-2", tool: "grep", status: "completed" })
+    await presenter.flush()
+    presenter.handle({ toolCallId: "call-3", tool: "bash", status: "running" })
+    await presenter.flush()
+
+    expect(created).toHaveLength(2)
+    expect(updated.some(({ id, text }) =>
+      id === "message-1" && text.includes("part 1/2, continued")
+    )).toBe(true)
+    expect(created[1]).toContain("part 2/2, working")
+    expect(created[1]).toContain("[bash]")
+    expect(created[1]).not.toContain("[read]")
+  })
+
+  test("continues in a replacement message when editing fails", async () => {
+    const created: string[] = []
+    const updatedIds: string[] = []
+    const errors: unknown[] = []
+    let failNextUpdate = true
+    const presenter = new ToolActivityPresenter({
+      mode: "trace",
+      showCalls: true,
+      showArguments: false,
+      showOutputFor: [],
+    }, {
+      create: async (text) => {
+        created.push(text)
+        return `message-${created.length}`
+      },
+      update: async (messageId) => {
+        updatedIds.push(messageId)
+        if (failNextUpdate) {
+          failNextUpdate = false
+          throw new Error("message is no longer editable")
+        }
+      },
+      onError: (error) => errors.push(error),
+    })
+
+    presenter.handle({ toolCallId: "call-1", tool: "read", status: "pending" })
+    await presenter.flush()
+    presenter.handle({ toolCallId: "call-1", tool: "read", status: "running" })
+    await presenter.flush()
+    presenter.handle({ toolCallId: "call-1", tool: "read", status: "completed" })
+    await presenter.flush()
+
+    expect(created).toHaveLength(2)
+    expect(updatedIds).toEqual(["message-1", "message-2"])
+    expect(errors).toHaveLength(1)
+  })
+
   test("renders only the current tool in status mode", async () => {
     let rendered = ""
     const presenter = new ToolActivityPresenter({

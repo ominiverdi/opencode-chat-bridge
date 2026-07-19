@@ -86,6 +86,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
   private sock: ReturnType<typeof makeWASocket> | null = null
   private myNumber: string = ""
   private ownIds = new Set<string>()
+  private composingTokens = new Map<string, symbol>()
 
   constructor() {
     super({
@@ -365,6 +366,26 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
   // WhatsApp-specific: Query processing
   // ---------------------------------------------------------------------------
 
+  private startComposing(chatId: string): () => Promise<void> {
+    const token = Symbol(chatId)
+    this.composingTokens.set(chatId, token)
+
+    const refresh = () => {
+      if (this.composingTokens.get(chatId) !== token || !this.sock) return
+      void this.sock.sendPresenceUpdate("composing", chatId).catch(() => {})
+    }
+    refresh()
+    const interval = setInterval(refresh, 8_000)
+
+    return async () => {
+      clearInterval(interval)
+      if (this.composingTokens.get(chatId) !== token) return
+      this.composingTokens.delete(chatId)
+      if (!this.sock) return
+      await this.sock.sendPresenceUpdate("paused", chatId).catch(() => {})
+    }
+  }
+
   private async processQuery(chatId: string, senderId: string, query: string): Promise<void> {
     const startTime = Date.now()
 
@@ -385,6 +406,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       return
     }
 
+    const stopComposing = this.startComposing(chatId)
     const activeQuery = this.markQueryActive(chatId, () => {
       this.log(`[ABORT-EXEC] Disconnecting ACP client for ${chatId}`)
       this.sessionManager.delete(chatId)
@@ -564,6 +586,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       client.off("permission_rejected", permissionHandler)
       session.lastActivity = new Date()
       this.markQueryDone(chatId, activeQuery)
+      await stopComposing()
     }
   }
 

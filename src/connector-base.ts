@@ -65,7 +65,8 @@ type ToolTraceEntry = {
 /** Maintains one editable status or cumulative trace message for a request. */
 export class ToolActivityPresenter {
   private entries = new Map<string, ToolTraceEntry>()
-  private messageId: string | null = null
+  private messageIds: Array<string | null> = []
+  private dirtyPages = new Set<number>()
   private version = 0
   private renderedVersion = 0
   private syncing: Promise<void> | null = null
@@ -81,6 +82,7 @@ export class ToolActivityPresenter {
     if (this.disabled || (mode !== "status" && mode !== "trace")) return
 
     const existing = this.entries.get(revision.toolCallId)
+    const previousPageCount = this.pageCount()
     this.entries.set(revision.toolCallId, {
       id: revision.toolCallId,
       // ACP update titles may become a path or human description. Preserve the
@@ -91,6 +93,18 @@ export class ToolActivityPresenter {
       description: revision.description?.trim() || existing?.description || "",
       status: revision.status,
     })
+
+    if (mode === "status") {
+      this.dirtyPages.add(0)
+    } else {
+      const entryIndex = [...this.entries.keys()].indexOf(revision.toolCallId)
+      const pageIndex = Math.floor(entryIndex / this.maxEntries())
+      this.dirtyPages.add(pageIndex)
+      const currentPageCount = this.pageCount()
+      if (currentPageCount !== previousPageCount) {
+        for (let page = 0; page < currentPageCount; page++) this.dirtyPages.add(page)
+      }
+    }
     this.version++
     if (!this.syncing) this.syncing = this.sync()
   }
@@ -103,14 +117,32 @@ export class ToolActivityPresenter {
     try {
       while (this.renderedVersion !== this.version) {
         const targetVersion = this.version
-        const text = this.render()
-        if (this.messageId) {
-          await this.adapter.update(this.messageId, text)
-        } else {
-          this.messageId = await this.adapter.create(text)
-          if (!this.messageId) {
-            this.disabled = true
-            return
+        const pages = [...this.dirtyPages].sort((a, b) => a - b)
+        this.dirtyPages.clear()
+        for (const page of pages) {
+          const text = this.render(page)
+          const messageId = this.messageIds[page]
+          if (messageId) {
+            try {
+              await this.adapter.update(messageId, text)
+            } catch (error) {
+              // The original message may have expired, been deleted, or become
+              // uneditable. Continue the presentation in a replacement message.
+              this.adapter.onError?.(error)
+              const replacementId = await this.adapter.create(text)
+              if (!replacementId) {
+                this.disabled = true
+                return
+              }
+              this.messageIds[page] = replacementId
+            }
+          } else {
+            const newMessageId = await this.adapter.create(text)
+            if (!newMessageId) {
+              this.disabled = true
+              return
+            }
+            this.messageIds[page] = newMessageId
           }
         }
         this.renderedVersion = targetVersion
@@ -133,7 +165,16 @@ export class ToolActivityPresenter {
     return `[${entry.status}] ${detail}`
   }
 
-  private render(): string {
+  private maxEntries(): number {
+    return Math.max(1, this.options.maxTraceEntries || 20)
+  }
+
+  private pageCount(): number {
+    if (resolveToolMessageMode(this.options) === "status") return 1
+    return Math.max(1, Math.ceil(this.entries.size / this.maxEntries()))
+  }
+
+  private render(page: number): string {
     const entries = [...this.entries.values()]
     const completed = entries.filter((entry) => entry.status === "completed" || entry.status === "failed").length
     const active = [...entries].reverse().find((entry) => entry.status === "pending" || entry.status === "running")
@@ -147,13 +188,14 @@ export class ToolActivityPresenter {
       ].join("\n")
     }
 
-    const maxEntries = Math.max(1, this.options.maxTraceEntries || 20)
-    const visible = entries.slice(-maxEntries)
-    const omitted = entries.length - visible.length
-    const header = active ? "Tool trace (working)" : "Tool trace (completed)"
-    const lines = visible.map((entry) => this.formatEntry(entry))
-    if (omitted > 0) lines.unshift(`${omitted} earlier tool call${omitted === 1 ? "" : "s"} omitted`)
-    return [header, "", ...lines].join("\n")
+    const maxEntries = this.maxEntries()
+    const pageCount = this.pageCount()
+    const pageEntries = entries.slice(page * maxEntries, (page + 1) * maxEntries)
+    const pageActive = pageEntries.some((entry) => entry.status === "pending" || entry.status === "running")
+    const state = pageActive ? "working" : page === pageCount - 1 && !active ? "completed" : "continued"
+    const part = pageCount > 1 ? `part ${page + 1}/${pageCount}, ` : ""
+    const header = `Tool trace (${part}${state})`
+    return [header, "", ...pageEntries.map((entry) => this.formatEntry(entry))].join("\n")
   }
 }
 
