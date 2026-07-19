@@ -2,9 +2,11 @@
   "$schema": "./config.schema.json",
 
   "toolMessages": {
+    "mode": "events",
     "showCalls": true,
     "showArguments": false,
-    "showOutputFor": ["bash"]
+    "showOutputFor": ["bash"],
+    "maxTraceEntries": 20
   },
   
   "matrix": {

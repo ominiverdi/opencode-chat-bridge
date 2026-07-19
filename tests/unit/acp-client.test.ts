@@ -34,6 +34,8 @@ describe("ACPClient session updates", () => {
   test("prefers arguments from an immediate in-progress update", () => {
     const client = new ACPClient()
     const activity: Array<{ tool?: string; description?: string }> = []
+    const revisions: Array<{ toolCallId: string; status: string; description?: string }> = []
+    client.on("tool_activity", (event) => revisions.push(event))
     client.on("activity", (event) => {
       if (event.type === "tool_start") activity.push(event)
     })
@@ -61,6 +63,9 @@ describe("ACPClient session updates", () => {
     expect(activity[0].tool).toBe("Exa Web Search")
     expect(activity[0].description).toContain("query=current time in Barcelona")
     expect(activity[0].description).toContain("numResults=5")
+    expect(revisions.map((event) => event.status)).toEqual(["pending", "running"])
+    expect(revisions[1].toolCallId).toBe("call-search")
+    expect(revisions[1].description).toContain("query=current time in Barcelona")
   })
 
   test("preserves the end of long path arguments", () => {
@@ -83,6 +88,31 @@ describe("ACPClient session updates", () => {
 
     expect(description).toStartWith("filePath=...")
     expect(description).toEndWith("/generated/demo_log.txt")
+  })
+
+  test("compacts multiline arguments and omits redundant descriptions", () => {
+    const client = new ACPClient()
+    let description = ""
+    client.on("activity", (event) => {
+      if (event.type === "tool_start") description = event.description || ""
+    })
+
+    ;(client as any).handleSessionUpdate({
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "call-bash",
+        title: "bash",
+        rawInput: {
+          command: "printf 'first\\nsecond'\n> output.txt",
+          description: "Create the output file",
+          workdir: "/tmp/work",
+        },
+      },
+    })
+
+    expect(description).toContain("command=printf 'first\\nsecond' > output.txt")
+    expect(description).toContain("workdir=/tmp/work")
+    expect(description).not.toContain("description=")
   })
 
   test("flushes an argument-less tool start when the tool completes", () => {

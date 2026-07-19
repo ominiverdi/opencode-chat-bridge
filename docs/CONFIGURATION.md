@@ -423,26 +423,39 @@ these settings affect presentation only.
 ```json
 {
   "toolMessages": {
+    "mode": "events",
     "showCalls": true,
     "showArguments": false,
-    "showOutputFor": ["bash"]
+    "showOutputFor": ["bash"],
+    "maxTraceEntries": 20
   }
 }
 ```
 
-- `showCalls` sends a notice such as `[bash]` or `[read]` when a tool starts.
+- `mode` selects the tool-call presentation:
+  - `off` hides tool calls.
+  - `events` sends one immutable message per call and is the default.
+  - `status` maintains one editable message with the current tool and totals.
+  - `trace` maintains one editable cumulative tool-call ledger.
+- `showCalls` is the legacy call-notice switch. `false` always resolves to
+  `mode: "off"`; existing configurations remain compatible.
 - `showArguments` adds up to three compact arguments to each call notice.
   Arguments can contain local paths, queries, URLs, or other sensitive input,
   so the default is `false`.
 - `showOutputFor` lists tool-name substrings whose output is returned to chat.
   The default `["bash"]` provides progress from shell commands. Use an empty
   list to suppress all direct tool output.
+- `maxTraceEntries` bounds the calls retained in a `trace` message.
+
+Editable `status` and `trace` messages are currently supported by Telegram and
+WhatsApp. Other connectors safely fall back to `events` presentation.
 
 For example, to show tool calls and output from Bash and time MCP tools:
 
 ```json
 {
   "toolMessages": {
+    "mode": "events",
     "showCalls": true,
     "showArguments": false,
     "showOutputFor": ["bash", "mcp__time"]
@@ -455,7 +468,8 @@ To show only the agent's final response:
 ```json
 {
   "toolMessages": {
-    "showCalls": false,
+    "mode": "off",
+    "showCalls": true,
     "showArguments": false,
     "showOutputFor": []
   }

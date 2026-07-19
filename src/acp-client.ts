@@ -94,6 +94,15 @@ export interface ActivityEvent {
   details?: any
 }
 
+/** Correlated tool state used by editable status and trace presentations. */
+export interface ToolActivityRevision {
+  toolCallId: string
+  tool: string
+  status: "pending" | "running" | "completed" | "failed"
+  description?: string
+  details?: any
+}
+
 // Image content from tool results
 export interface ImageContent {
   type: "image"
@@ -637,6 +646,13 @@ export class ACPClient extends EventEmitter {
         this.emit("tool", { name: toolNameInit, status: "pending", args: toolArgsInit })
         const initialToolCallId = update.toolCallId || toolNameInit
         this.queueToolStartActivity(initialToolCallId, toolNameInit, toolArgsInit)
+        this.emit("tool_activity", {
+          toolCallId: initialToolCallId,
+          tool: toolNameInit,
+          status: "pending",
+          description: this.formatToolActivity(toolNameInit, toolArgsInit, "start").description,
+          details: toolArgsInit,
+        } satisfies ToolActivityRevision)
         break
         
       case "tool_call_update":
@@ -665,6 +681,13 @@ export class ACPClient extends EventEmitter {
           // Emit human-readable activity event -- only once per tool call
           const tcId = update.toolCallId || toolNameUpdate
           this.queueToolStartActivity(tcId, toolNameUpdate, toolArgsUpdate)
+          this.emit("tool_activity", {
+            toolCallId: tcId,
+            tool: toolNameUpdate,
+            status: "running",
+            description: this.formatToolActivity(toolNameUpdate, toolArgsUpdate, "start").description,
+            details: toolArgsUpdate,
+          } satisfies ToolActivityRevision)
           
           // Stream partial output if available (e.g., bash stdout during execution)
           // rawOutput.output is CUMULATIVE - compute actual delta
@@ -738,6 +761,13 @@ export class ACPClient extends EventEmitter {
             tool: toolNameUpdate,
             message: "Done",
           })
+          this.emit("tool_activity", {
+            toolCallId,
+            tool: toolNameUpdate,
+            status: "completed",
+            description: this.formatToolActivity(toolNameUpdate, toolArgsUpdate, "start").description,
+            details: toolArgsUpdate,
+          } satisfies ToolActivityRevision)
         }
         
         // Handle failed status (blocked or error)
@@ -771,6 +801,13 @@ export class ACPClient extends EventEmitter {
             tool: toolNameUpdate,
             message: "Failed",
           })
+          this.emit("tool_activity", {
+            toolCallId: failedToolCallId,
+            tool: toolNameUpdate,
+            status: "failed",
+            description: this.formatToolActivity(toolNameUpdate, toolArgsUpdate, "start").description,
+            details: toolArgsUpdate,
+          } satisfies ToolActivityRevision)
         }
         break
         
@@ -865,10 +902,14 @@ export class ACPClient extends EventEmitter {
     const formatArgs = (obj: any): string => {
       if (!obj || typeof obj !== "object") return ""
       const pairs = Object.entries(obj)
-        .filter(([_, v]) => v !== undefined && v !== null && v !== "")
-        .map(([k, v]) => {
-          const serialized = typeof v === "string" ? v : String(JSON.stringify(v) ?? v)
-          return `${k}=${truncateValue(k, serialized)}`
+        .filter(([key, value]) =>
+          key.toLowerCase() !== "description" &&
+          value !== undefined && value !== null && value !== ""
+        )
+        .map(([key, value]) => {
+          const serialized = typeof value === "string" ? value : String(JSON.stringify(value) ?? value)
+          const compact = serialized.replace(/\s+/g, " ").trim()
+          return `${key}=${truncateValue(key, compact)}`
         })
         .slice(0, 3)  // Max 3 params
       return pairs.join(", ")

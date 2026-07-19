@@ -26,13 +26,14 @@ import makeWASocket, {
 } from "baileys"
 import { Boom } from "@hapi/boom"
 import * as qrcode from "qrcode-terminal"
-import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
+import { ACPClient, type ActivityEvent, type ImageContent, type ToolActivityRevision } from "../src"
 import { getConfig } from "../src/config"
 import {
   BaseConnector,
   type BaseSession,
   parseCsvList,
   formatToolCallMessage,
+  ToolActivityPresenter,
   shouldShowToolOutput,
   extractImagePaths,
   extractDocPaths,
@@ -140,6 +141,20 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     } catch (err) {
       this.logError(`Failed to send message to ${chatId}:`, err)
     }
+  }
+
+  private async createToolActivityMessage(chatId: string, text: string): Promise<string | null> {
+    if (!this.sock) return null
+    const sent = await this.sock.sendMessage(chatId, { text: `${BOT_NAME}: > ${text}` })
+    return sent?.key.id || null
+  }
+
+  private async updateToolActivityMessage(chatId: string, messageId: string, text: string): Promise<void> {
+    if (!this.sock) return
+    await this.sock.sendMessage(chatId, {
+      text: `${BOT_NAME}: > ${text}`,
+      edit: { id: messageId, remoteJid: chatId, fromMe: true },
+    })
   }
 
   private splitMessage(text: string, maxLen: number): string[] {
@@ -389,18 +404,25 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
     let lastActivityMessage = ""
     let toolCallCount = 0
     const sentToolOutputs = new Set<string>()
+    const toolPresenter = new ToolActivityPresenter(config.toolMessages, {
+      create: (text) => this.createToolActivityMessage(chatId, text),
+      update: (messageId, text) => this.updateToolActivityMessage(chatId, messageId, text),
+      onError: (error) => this.logError("Failed to update tool activity:", error),
+    })
 
     // Activity events
     const activityHandler = async (activity: ActivityEvent) => {
       if (activity.type === "tool_start") {
         toolCallCount++
-        const message = formatToolCallMessage(activity, config.toolMessages)
+        const message = formatToolCallMessage(activity, config.toolMessages, true)
         if (message && message !== lastActivityMessage) {
           lastActivityMessage = message
           await this.sendMessage(chatId, `> ${message}`)
         }
       }
     }
+
+    const toolActivityHandler = (revision: ToolActivityRevision) => toolPresenter.handle(revision)
 
     // Collect text chunks
     const chunkHandler = (text: string) => {
@@ -452,6 +474,7 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
 
     // Set up listeners
     client.on("activity", activityHandler)
+    client.on("tool_activity", toolActivityHandler)
     client.on("chunk", chunkHandler)
     client.on("update", updateHandler)
     client.on("image", imageHandler)
@@ -532,7 +555,9 @@ class WhatsAppConnector extends BaseConnector<ChatSession> {
       }
     } finally {
       if (timeoutId) clearTimeout(timeoutId)
+      await toolPresenter.flush()
       client.off("activity", activityHandler)
+      client.off("tool_activity", toolActivityHandler)
       client.off("chunk", chunkHandler)
       client.off("update", updateHandler)
       client.off("image", imageHandler)

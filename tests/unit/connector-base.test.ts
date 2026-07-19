@@ -11,6 +11,8 @@ import {
   BaseConnector,
   parseCsvList,
   formatToolCallMessage,
+  resolveToolMessageMode,
+  ToolActivityPresenter,
   shouldShowToolOutput,
   type BaseSession,
   type SessionStats,
@@ -51,6 +53,84 @@ describe("tool message presentation", () => {
       showArguments: true,
       showOutputFor: ["bash"],
     })).toBe("timezone=Europe/Madrid [mcp__time__get_current_time]")
+  })
+
+  test("resolves explicit and legacy presentation modes", () => {
+    expect(resolveToolMessageMode({
+      mode: "trace",
+      showCalls: true,
+      showArguments: false,
+      showOutputFor: [],
+    })).toBe("trace")
+    expect(resolveToolMessageMode({
+      mode: "trace",
+      showCalls: false,
+      showArguments: false,
+      showOutputFor: [],
+    })).toBe("off")
+  })
+
+  test("maintains one cumulative editable trace", async () => {
+    const created: string[] = []
+    const updated: string[] = []
+    const presenter = new ToolActivityPresenter({
+      mode: "trace",
+      showCalls: true,
+      showArguments: true,
+      showOutputFor: [],
+      maxTraceEntries: 20,
+    }, {
+      create: async (text) => {
+        created.push(text)
+        return "message-1"
+      },
+      update: async (_messageId, text) => {
+        updated.push(text)
+      },
+    })
+
+    presenter.handle({ toolCallId: "call-1", tool: "read", status: "pending" })
+    presenter.handle({
+      toolCallId: "call-1",
+      tool: "read",
+      status: "running",
+      description: "filePath=.../test_file.txt",
+    })
+    presenter.handle({ toolCallId: "call-1", tool: "read", status: "completed" })
+    presenter.handle({ toolCallId: "call-2", tool: "grep", status: "running", description: "pattern=test" })
+    presenter.handle({ toolCallId: "call-2", tool: "Search test files", status: "completed" })
+    await presenter.flush()
+
+    expect(created).toHaveLength(1)
+    expect(updated.length).toBeGreaterThan(0)
+    const final = updated.at(-1) || created.at(-1) || ""
+    expect(final).toContain("[completed] filePath=.../test_file.txt [read]")
+    expect(final).toContain("[completed] pattern=test [grep]")
+    expect(final).not.toContain("[Search test files]")
+  })
+
+  test("renders only the current tool in status mode", async () => {
+    let rendered = ""
+    const presenter = new ToolActivityPresenter({
+      mode: "status",
+      showCalls: true,
+      showArguments: false,
+      showOutputFor: [],
+    }, {
+      create: async (text) => {
+        rendered = text
+        return "message-1"
+      },
+      update: async (_messageId, text) => { rendered = text },
+    })
+
+    presenter.handle({ toolCallId: "call-1", tool: "read", status: "completed" })
+    presenter.handle({ toolCallId: "call-2", tool: "bash", status: "running" })
+    await presenter.flush()
+
+    expect(rendered).toContain("Current: [running] [bash]")
+    expect(rendered).toContain("Completed: 1 tool")
+    expect(rendered).not.toContain("[read]")
   })
 
   test("matches configured tool output by name substring", () => {

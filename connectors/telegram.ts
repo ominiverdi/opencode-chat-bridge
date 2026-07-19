@@ -28,7 +28,7 @@
 
 import fs from "fs"
 import path from "path"
-import { ACPClient, type ActivityEvent, type ImageContent } from "../src"
+import { ACPClient, type ActivityEvent, type ImageContent, type ToolActivityRevision } from "../src"
 import { getConfig } from "../src/config"
 import {
   BaseConnector,
@@ -36,6 +36,7 @@ import {
   type BaseSession,
   parseCsvList,
   formatToolCallMessage,
+  ToolActivityPresenter,
   shouldShowToolOutput,
   extractImagePaths,
   extractDocPaths,
@@ -757,6 +758,21 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
    * setting only controls SESSION keying -- reply routing is independent
    * because Telegram users expect responses where they asked.
    */
+  private async createToolActivityMessage(context: TelegramEventContext, text: string): Promise<string | null> {
+    const body: Record<string, unknown> = { chat_id: context.chatId, text: `> ${text}` }
+    if (context.messageThreadId !== null) body.message_thread_id = context.messageThreadId
+    const result = await tgApi<{ message_id: number }>("sendMessage", body)
+    return String(result.message_id)
+  }
+
+  private async updateToolActivityMessage(context: TelegramEventContext, messageId: string, text: string): Promise<void> {
+    await tgApi("editMessageText", {
+      chat_id: context.chatId,
+      message_id: Number(messageId),
+      text: `> ${text}`,
+    })
+  }
+
   private async sendReply(context: TelegramEventContext, text: string): Promise<void> {
     const chunks = this.splitMessage(text, MAX_MESSAGE_LENGTH)
     for (let i = 0; i < chunks.length; i++) {
@@ -1157,17 +1173,23 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
       let lastActivityMessage = ""
       let toolCallCount = 0
       const sentToolOutputs = new Set<string>()
+      const toolPresenter = new ToolActivityPresenter(config.toolMessages, {
+        create: (text) => this.createToolActivityMessage(context, text),
+        update: (messageId, text) => this.updateToolActivityMessage(context, messageId, text),
+        onError: (error) => this.logError("Failed to update tool activity:", error),
+      })
 
       const activityHandler = async (activity: ActivityEvent) => {
         if (activity.type === "tool_start") {
           toolCallCount++
-          const message = formatToolCallMessage(activity, config.toolMessages)
+          const message = formatToolCallMessage(activity, config.toolMessages, true)
           if (message && message !== lastActivityMessage) {
             lastActivityMessage = message
             await this.sendReply(context, `> ${message}`)
           }
         }
       }
+      const toolActivityHandler = (revision: ToolActivityRevision) => toolPresenter.handle(revision)
       const chunkHandler = (text: string) => {
         responseBuffer += text
       }
@@ -1225,6 +1247,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
       }
 
       client.on("activity", activityHandler)
+      client.on("tool_activity", toolActivityHandler)
       client.on("chunk", chunkHandler)
       client.on("update", updateHandler)
       client.on("image", imageHandler)
@@ -1291,7 +1314,9 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
         this.logError(`[FAIL] ${elapsed}s [${context.sessionId}]:`, err)
         await this.sendReply(context, CommandHandler.formatProcessingErrorMessage())
       } finally {
+        await toolPresenter.flush()
         client.off("activity", activityHandler)
+        client.off("tool_activity", toolActivityHandler)
         client.off("chunk", chunkHandler)
         client.off("update", updateHandler)
         client.off("image", imageHandler)

@@ -44,9 +44,11 @@ describe("config", () => {
       expect(config.trigger).toBe("!oc")
       expect(config.rateLimitSeconds).toBe(5)
       expect(config.toolMessages).toEqual({
+        mode: "events",
         showCalls: true,
         showArguments: false,
         showOutputFor: ["bash"],
+        maxTraceEntries: 20,
       })
       expect(config.matrix.enabled).toBe(false)
       expect(config.whatsapp.enabled).toBe(false)
@@ -81,9 +83,11 @@ describe("config", () => {
       const config = loadConfig()
 
       expect(config.toolMessages).toEqual({
+        mode: "events",
         showCalls: true,
         showArguments: false,
         showOutputFor: ["bash", "weather"],
+        maxTraceEntries: 20,
       })
       expect("streamTools" in config).toBe(false)
     })

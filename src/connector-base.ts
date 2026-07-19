@@ -9,8 +9,8 @@
 import fs from "fs"
 import path from "path"
 import { createHash } from "crypto"
-import { ACPClient, type ACPSessionInfo, type ActivityEvent, type LoadedSessionHistoryItem, type OpenCodeCommand } from "./acp-client"
-import { getConfig, type ACPConfig, type ToolMessagesConfig } from "./config"
+import { ACPClient, type ACPSessionInfo, type ActivityEvent, type LoadedSessionHistoryItem, type OpenCodeCommand, type ToolActivityRevision } from "./acp-client"
+import { getConfig, type ACPConfig, type ToolMessageMode, type ToolMessagesConfig } from "./config"
 import { ACPSessionStore } from "./session-store"
 import { 
   getSessionDir, 
@@ -26,18 +26,135 @@ import {
 // Tool message presentation
 // =============================================================================
 
+export function resolveToolMessageMode(options: ToolMessagesConfig): ToolMessageMode {
+  if (!options.showCalls) return "off"
+  return options.mode || "events"
+}
+
 /** Format a tool-start event for a chat channel according to presentation policy. */
 export function formatToolCallMessage(
   activity: ActivityEvent,
-  options: ToolMessagesConfig
+  options: ToolMessagesConfig,
+  supportsEditablePresentation = false
 ): string | null {
-  if (activity.type !== "tool_start" || !options.showCalls) return null
+  const mode = resolveToolMessageMode(options)
+  if (activity.type !== "tool_start" || mode === "off") return null
+  // Connectors without message-edit support safely fall back to event messages.
+  if (supportsEditablePresentation && mode !== "events") return null
 
   const toolName = activity.tool || "unknown"
   if (options.showArguments && activity.description?.trim()) {
     return `${activity.description.trim()} [${toolName}]`
   }
   return `[${toolName}]`
+}
+
+export interface EditableToolMessageAdapter {
+  create(text: string): Promise<string | null>
+  update(messageId: string, text: string): Promise<void>
+  onError?(error: unknown): void
+}
+
+type ToolTraceEntry = {
+  id: string
+  tool: string
+  description: string
+  status: ToolActivityRevision["status"]
+}
+
+/** Maintains one editable status or cumulative trace message for a request. */
+export class ToolActivityPresenter {
+  private entries = new Map<string, ToolTraceEntry>()
+  private messageId: string | null = null
+  private version = 0
+  private renderedVersion = 0
+  private syncing: Promise<void> | null = null
+  private disabled = false
+
+  constructor(
+    private options: ToolMessagesConfig,
+    private adapter: EditableToolMessageAdapter
+  ) {}
+
+  handle(revision: ToolActivityRevision): void {
+    const mode = resolveToolMessageMode(this.options)
+    if (this.disabled || (mode !== "status" && mode !== "trace")) return
+
+    const existing = this.entries.get(revision.toolCallId)
+    this.entries.set(revision.toolCallId, {
+      id: revision.toolCallId,
+      // ACP update titles may become a path or human description. Preserve the
+      // canonical tool name from the initial correlated event.
+      tool: existing?.tool && existing.tool !== "unknown"
+        ? existing.tool
+        : revision.tool || "unknown",
+      description: revision.description?.trim() || existing?.description || "",
+      status: revision.status,
+    })
+    this.version++
+    if (!this.syncing) this.syncing = this.sync()
+  }
+
+  async flush(): Promise<void> {
+    await this.syncing
+  }
+
+  private async sync(): Promise<void> {
+    try {
+      while (this.renderedVersion !== this.version) {
+        const targetVersion = this.version
+        const text = this.render()
+        if (this.messageId) {
+          await this.adapter.update(this.messageId, text)
+        } else {
+          this.messageId = await this.adapter.create(text)
+          if (!this.messageId) {
+            this.disabled = true
+            return
+          }
+        }
+        this.renderedVersion = targetVersion
+      }
+    } catch (error) {
+      this.disabled = true
+      this.adapter.onError?.(error)
+    } finally {
+      this.syncing = null
+      if (!this.disabled && this.renderedVersion !== this.version) {
+        this.syncing = this.sync()
+      }
+    }
+  }
+
+  private formatEntry(entry: ToolTraceEntry): string {
+    const detail = this.options.showArguments && entry.description
+      ? `${entry.description} [${entry.tool}]`
+      : `[${entry.tool}]`
+    return `[${entry.status}] ${detail}`
+  }
+
+  private render(): string {
+    const entries = [...this.entries.values()]
+    const completed = entries.filter((entry) => entry.status === "completed" || entry.status === "failed").length
+    const active = [...entries].reverse().find((entry) => entry.status === "pending" || entry.status === "running")
+
+    if (resolveToolMessageMode(this.options) === "status") {
+      if (!active) return `Completed ${completed} tool${completed === 1 ? "" : "s"}.`
+      return [
+        "Working...",
+        `Current: ${this.formatEntry(active)}`,
+        `Completed: ${completed} tool${completed === 1 ? "" : "s"}`,
+      ].join("\n")
+    }
+
+    const maxEntries = Math.max(1, this.options.maxTraceEntries || 20)
+    const visible = entries.slice(-maxEntries)
+    const omitted = entries.length - visible.length
+    const header = active ? "Tool trace (working)" : "Tool trace (completed)"
+    const lines = visible.map((entry) => this.formatEntry(entry))
+    if (omitted > 0) lines.unshift(`${omitted} earlier tool call${omitted === 1 ? "" : "s"} omitted`)
+    return [header, "", ...lines].join("\n")
+  }
 }
 
 /** Whether output from a tool should be forwarded to the chat channel. */
