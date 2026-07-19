@@ -424,7 +424,6 @@ these settings affect presentation only.
 {
   "toolMessages": {
     "mode": "events",
-    "showCalls": true,
     "showArguments": false,
     "showOutputFor": ["bash"],
     "maxTraceEntries": 20
@@ -437,27 +436,44 @@ these settings affect presentation only.
   - `events` sends one immutable message per call and is the default.
   - `status` maintains one editable message with the current tool and totals.
   - `trace` maintains one editable cumulative tool-call ledger.
-- `showCalls` is the legacy call-notice switch. `false` always resolves to
-  `mode: "off"`; existing configurations remain compatible.
+- `showCalls` is a legacy compatibility switch and is no longer needed in new
+  configurations. If present, `false` always resolves to `mode: "off"`.
 - `showArguments` adds up to three compact arguments to each call notice.
-  Arguments can contain local paths, queries, URLs, or other sensitive input,
-  so the default is `false`.
+  Long path-like values retain their filename/suffix; other values retain their
+  beginning. Arguments can contain local paths, queries, URLs, or other
+  sensitive input, so the default is `false`.
 - `showOutputFor` lists tool-name substrings whose output is returned to chat.
   The default `["bash"]` provides progress from shell commands. Use an empty
-  list to suppress all direct tool output.
+  list to suppress all direct tool output. This setting is independent from
+  `mode`; `mode: "off"` can still forward selected output.
 - `maxTraceEntries` bounds each `trace` message. Longer traces continue in
   additional editable messages without discarding earlier calls.
 
-Editable `status` and `trace` messages are supported by WhatsApp, Telegram,
-Slack, Discord, Mattermost, Matrix, and Web. The CLI retains event-style output.
+The mode is global across WhatsApp, Telegram, Slack, Discord, Mattermost,
+Matrix, and Web. Editable modes correlate progressive ACP updates by tool-call
+ID. If a message can no longer be edited, the bridge continues in a replacement
+message. The CLI retains event-style output.
 
-For example, to show tool calls and output from Bash and time MCP tools:
+For an editable audit trail with arguments:
+
+```json
+{
+  "toolMessages": {
+    "mode": "trace",
+    "showArguments": true,
+    "showOutputFor": [],
+    "maxTraceEntries": 20
+  }
+}
+```
+
+For example, to show individual tool calls and output from Bash and time MCP
+tools:
 
 ```json
 {
   "toolMessages": {
     "mode": "events",
-    "showCalls": true,
     "showArguments": false,
     "showOutputFor": ["bash", "mcp__time"]
   }
@@ -470,7 +486,6 @@ To show only the agent's final response:
 {
   "toolMessages": {
     "mode": "off",
-    "showCalls": true,
     "showArguments": false,
     "showOutputFor": []
   }

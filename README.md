@@ -4,6 +4,7 @@ Bridge ACP-compatible agents such as [OpenCode](https://opencode.ai) and [Ferrum
 
 ## Recent Changes
 
+- Global tool presentation modes: `off`, `events`, `status`, and `trace`. Editable status and cumulative audit messages work across every chat connector, with progressive ACP argument updates, pagination, and edit-failure recovery.
 - Telegram connector accepts file attachments from users (photo, document, video, audio, voice, animation, video note, sticker). Attachments are downloaded to the session workspace and exposed to the LLM as local file paths.
 - ACP backend executable, arguments, identity, and workspace profile are configurable
 - ACP sessions persist across bridge restarts and remain isolated per chat thread

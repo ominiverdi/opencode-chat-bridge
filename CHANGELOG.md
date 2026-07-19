@@ -10,7 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Configurable tool messages** - New global `toolMessages` settings control
   whether tool calls, compact arguments, and selected tool outputs are returned
-  to chat. The former `streamTools` option is migrated automatically.
+  to chat. Presentation modes include `off`, immutable `events`, editable
+  current `status`, and an editable cumulative `trace`. Editable modes work
+  across WhatsApp, Telegram, Slack, Discord, Mattermost, Matrix, and Web, with
+  progressive ACP argument updates, trace pagination, and edit-failure
+  recovery. The former `streamTools` option is migrated automatically.
 - **Telegram file attachments from users** - The Telegram connector now
   downloads photos, documents, videos, audio, voice notes, animations
   (GIFs), video notes, and stickers that users send to the bot. Each
