@@ -11,6 +11,7 @@ import { join } from "path"
 // Debug trace — writes to logs/bridge-debug.log when BRIDGE_DEBUG=1
 const BRIDGE_DEBUG = process.env.BRIDGE_DEBUG === "1"
 const BRIDGE_DEBUG_LOG = join(process.cwd(), "logs", "bridge-debug.log")
+const TOOL_ACTIVITY_ARGUMENT_WAIT_MS = 2_000
 function dbg(msg: string): void {
   if (!BRIDGE_DEBUG) return
   const ts = new Date().toISOString()
@@ -836,7 +837,7 @@ export class ACPClient extends EventEmitter {
         const current = this.pendingToolActivity.get(toolCallId)
         if (!current) return
         this.emitToolStartActivity(toolCallId, current.toolName, current.args)
-      }, 750),
+      }, TOOL_ACTIVITY_ARGUMENT_WAIT_MS),
     }
     this.pendingToolActivity.set(toolCallId, pending)
   }
