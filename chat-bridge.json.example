@@ -4,7 +4,6 @@
   "rateLimitSeconds": 5,
   "toolMessages": {
     "mode": "events",
-    "showCalls": true,
     "showArguments": false,
     "showOutputFor": ["bash"],
     "maxTraceEntries": 20
