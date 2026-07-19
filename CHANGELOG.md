@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-19
+
 ### Added
 - **Configurable tool messages** - New global `toolMessages` settings control
   whether tool calls, compact arguments, and selected tool outputs are returned
@@ -106,6 +108,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Shows both the permission denial and the tool error to users
 
 ### Changed
+- **Security dependency refresh** - Updated Baileys to `7.0.0-rc.13`,
+  Discord.js to `14.27.0`, Slack Bolt to `4.7.3`, and Marked to `17.0.6`.
+  This removes the audited Baileys protocol-message vulnerability and several
+  vulnerable transitive networking and parsing packages.
 - **Breaking config rename (WhatsApp)** - `allowedNumbers` and
   `WHATSAPP_ALLOWED_NUMBERS` were removed in favor of `allowedUsers` and
   `WHATSAPP_ALLOWED_USERS` to match all other connectors.

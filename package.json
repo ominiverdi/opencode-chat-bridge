@@ -1,6 +1,6 @@
 {
   "name": "opencode-chat-bridge",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Bridge OpenCode AI to chat platforms (Matrix, Slack, WhatsApp, Mattermost, Discord, Telegram, Web) with secure permission-based tool access",
   "type": "module",
   "main": "dist/index.js",
@@ -43,10 +43,10 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.13.1",
     "@matrix-org/matrix-sdk-crypto-nodejs": "^0.4.0",
-    "@slack/bolt": "^4.1.0",
-    "baileys": "^7.0.0-rc.9",
-    "discord.js": "^14.25.1",
-    "marked": "^17.0.2",
+    "@slack/bolt": "^4.7.3",
+    "baileys": "^7.0.0-rc13",
+    "discord.js": "^14.27.0",
+    "marked": "^17.0.6",
     "matrix-bot-sdk": "^0.8.0",
     "qrcode-terminal": "^0.12.0"
   },
