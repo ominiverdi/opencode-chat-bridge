@@ -317,6 +317,39 @@ export function parseCsvList(value?: string): string[] {
     .filter(Boolean)
 }
 
+/**
+ * Maximum number of characters appended to a user-facing error message when
+ * `verboseErrors` is enabled. ACP/backend error messages can be arbitrarily
+ * long, so the detail is collapsed and bounded to keep the result within
+ * typical chat-platform message limits (e.g. Discord's 2000-character cap).
+ */
+export const USER_ERROR_DETAIL_MAX_LENGTH = 500
+
+/**
+ * Build a user-facing error message.
+ *
+ * - When `verbose` is false the original `generic` string is returned
+ *   unchanged so the existing friendly UX is preserved.
+ * - When `verbose` is true the underlying error detail is appended on a new
+ *   line. Whitespace is collapsed and the result is bounded to
+ *   `maxLength` characters so backend errors cannot exceed connector
+ *   message limits.
+ */
+export function buildUserErrorMessage(
+  generic: string,
+  err: unknown,
+  verbose: boolean,
+  maxLength: number = USER_ERROR_DETAIL_MAX_LENGTH,
+): string {
+  if (!verbose) return generic
+  const detail = err instanceof Error ? err.message : String(err)
+  const collapsed = detail.replace(/\s+/g, " ").trim()
+  if (!collapsed) return generic
+  if (collapsed.length <= maxLength) return `${generic}\n${collapsed}`
+  const sliceLength = Math.max(0, maxLength - 3)
+  return `${generic}\n${collapsed.slice(0, sliceLength).trimEnd()}...`
+}
+
 // =============================================================================
 // RateLimiter
 // =============================================================================
@@ -666,9 +699,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
    * can see what went wrong; otherwise a generic friendly string is returned.
    */
   protected userErrorMessage(generic: string, err: unknown): string {
-    if (!this.verboseErrors) return generic
-    const detail = err instanceof Error ? err.message : String(err)
-    return `${generic}\n${detail}`
+    return buildUserErrorMessage(generic, err, this.verboseErrors)
   }
   
   /**
