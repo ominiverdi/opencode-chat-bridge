@@ -492,6 +492,35 @@ To show only the agent's final response:
 }
 ```
 
+## Verbose Error Messages
+
+`verboseErrors` controls whether operational error messages surfaced to chat
+users include the underlying backend error detail. It currently applies to
+ACP session listing, loading, and reload errors (the catch blocks that used
+to return a fixed friendly string).
+
+```json
+{
+  "verboseErrors": false
+}
+```
+
+- `verboseErrors: false` (default) keeps the existing friendly UX. Users see
+  only the generic message such as `Could not list saved ACP sessions.`;
+  the underlying error is still written to the bridge logs.
+- `verboseErrors: true` appends the backend error detail on a new line, for
+  example `Could not list saved ACP sessions.\nbackend unreachable`. Whitespace
+  in the detail is collapsed, empty details are dropped, and the detail is
+  bounded to 500 characters so ACP/backend errors cannot exceed connector
+  message limits (e.g. Discord's 2000-character cap).
+
+> **Security warning.** Backend error messages may expose internal paths,
+> endpoints, hostnames, stack-trace fragments, or other sensitive operational
+> details to anyone in the chat room. Only enable `verboseErrors` in trusted
+> environments (private DMs, locked-down channels) and never in shared public
+> channels where untrusted users can read the bot's replies. The detail is
+> bounded but not redacted.
+
 ## Matrix HTML Formatting
 
 By default, bot responses are sent as plain text. When `formatHtml` is enabled,

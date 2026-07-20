@@ -8,6 +8,8 @@
     "maxTraceEntries": 20
   },
   
+  "verboseErrors": false,
+  
   "matrix": {
     "enabled": true,
     "homeserver": "https://matrix.org",

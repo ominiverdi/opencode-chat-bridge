@@ -317,6 +317,39 @@ export function parseCsvList(value?: string): string[] {
     .filter(Boolean)
 }
 
+/**
+ * Maximum number of characters appended to a user-facing error message when
+ * `verboseErrors` is enabled. ACP/backend error messages can be arbitrarily
+ * long, so the detail is collapsed and bounded to keep the result within
+ * typical chat-platform message limits (e.g. Discord's 2000-character cap).
+ */
+export const USER_ERROR_DETAIL_MAX_LENGTH = 500
+
+/**
+ * Build a user-facing error message.
+ *
+ * - When `verbose` is false the original `generic` string is returned
+ *   unchanged so the existing friendly UX is preserved.
+ * - When `verbose` is true the underlying error detail is appended on a new
+ *   line. Whitespace is collapsed and the result is bounded to
+ *   `maxLength` characters so backend errors cannot exceed connector
+ *   message limits.
+ */
+export function buildUserErrorMessage(
+  generic: string,
+  err: unknown,
+  verbose: boolean,
+  maxLength: number = USER_ERROR_DETAIL_MAX_LENGTH,
+): string {
+  if (!verbose) return generic
+  const detail = err instanceof Error ? err.message : String(err)
+  const collapsed = detail.replace(/\s+/g, " ").trim()
+  if (!collapsed) return generic
+  if (collapsed.length <= maxLength) return `${generic}\n${collapsed}`
+  const sliceLength = Math.max(0, maxLength - 3)
+  return `${generic}\n${collapsed.slice(0, sliceLength).trimEnd()}...`
+}
+
 // =============================================================================
 // RateLimiter
 // =============================================================================
@@ -606,6 +639,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   private acpConfig: ACPConfig
   private sessionPickerConfig = getConfig().sessionPicker
   private acpSessionStore: ACPSessionStore
+  private verboseErrors: boolean
   private pickerProjects = new Map<string, ProjectPickerItem[]>()
   private selectedProjectCwd = new Map<string, string>()
   private pickerSessions = new Map<string, ACPSessionInfo[]>()
@@ -620,6 +654,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     this.acpConfig = globalConfig.acp
     this.sessionPickerConfig = globalConfig.sessionPicker
     this.acpSessionStore = new ACPSessionStore(globalConfig.sessionStorePath)
+    this.verboseErrors = globalConfig.verboseErrors
     
     // Apply SESSION_RETENTION_MINS from env if not set in config
     if (this.config.sessionRetentionMins === undefined) {
@@ -656,6 +691,15 @@ export abstract class BaseConnector<TSession extends BaseSession> {
   
   protected logError(message: string, ...args: any[]): void {
     console.error(`[${this.logPrefix}] ${message}`, ...args)
+  }
+
+  /**
+   * Build a user-facing error message.
+   * When verboseErrors is enabled the original error is appended so the user
+   * can see what went wrong; otherwise a generic friendly string is returned.
+   */
+  protected userErrorMessage(generic: string, err: unknown): string {
+    return buildUserErrorMessage(generic, err, this.verboseErrors)
   }
   
   /**
@@ -1158,7 +1202,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
       await sendFn(message)
     } catch (err) {
       this.logError("Failed to list ACP projects:", err)
-      await sendFn("Could not list saved ACP sessions.")
+      await sendFn(this.userErrorMessage("Could not list saved ACP sessions.", err))
     } finally {
       try {
         await client.disconnect()
@@ -1244,7 +1288,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
           await client.disconnect()
         } catch {}
         const keepCurrent = existing ? " Keeping the current session attached." : ""
-        await sendFn(`Could not load selected session.${keepCurrent}`)
+        await sendFn(this.userErrorMessage(`Could not load selected session.${keepCurrent}`, err))
       }
 
       return true
@@ -1275,7 +1319,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
       return message
     } catch (err) {
       this.logError("Failed to list ACP sessions:", err)
-      return "Could not list saved sessions for this project."
+      return this.userErrorMessage("Could not list saved sessions for this project.", err)
     } finally {
       try {
         await client.disconnect()
@@ -1483,7 +1527,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
       try {
         await client.disconnect()
       } catch {}
-      await sendFn("Could not reload current session.")
+      await sendFn(this.userErrorMessage("Could not reload current session.", err))
     }
 
     return true

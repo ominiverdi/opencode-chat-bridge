@@ -131,6 +131,7 @@ export interface ChatBridgeConfig {
   sessionStorePath: string
   defaultAgent: string | null
   toolMessages: ToolMessagesConfig
+  verboseErrors: boolean  // Send detailed error messages to the user
   sessionPicker: SessionPickerConfig
   acp: ACPConfig
   matrix: MatrixConfig
@@ -149,6 +150,7 @@ const defaultConfig: ChatBridgeConfig = {
   rateLimitSeconds: 5,
   sessionStorePath: "./.opencode/chat-sessions.json",
   defaultAgent: null,
+  verboseErrors: false,
   toolMessages: {
     mode: "events",
     showCalls: true,

@@ -15,6 +15,8 @@ import {
   ToolActivityPresenter,
   ToolActivityController,
   shouldShowToolOutput,
+  buildUserErrorMessage,
+  USER_ERROR_DETAIL_MAX_LENGTH,
   type BaseSession,
   type SessionStats,
 } from "../../src/connector-base"
@@ -331,6 +333,10 @@ class TestConnector extends BaseConnector<BaseSession> {
 
   public isAborted(handle: ReturnType<TestConnector["startQuery"]>): boolean {
     return this.wasQueryAborted(handle)
+  }
+
+  public formatUserError(generic: string, err: unknown): string {
+    return this.userErrorMessage(generic, err)
   }
 }
 
@@ -712,5 +718,113 @@ describe("EventDeduplicator", () => {
     // Duplicate does not increase size
     dedup.isDuplicate("a")
     expect(dedup.size).toBe(3)
+  })
+})
+
+// =============================================================================
+// buildUserErrorMessage / BaseConnector.userErrorMessage
+// =============================================================================
+
+describe("buildUserErrorMessage", () => {
+  const generic = "Could not list saved ACP sessions."
+
+  test("returns the generic message verbatim when verbose is false", () => {
+    expect(buildUserErrorMessage(generic, new Error("boom"), false))
+      .toBe(generic)
+    expect(buildUserErrorMessage(generic, "string error", false))
+      .toBe(generic)
+    expect(buildUserErrorMessage(generic, { code: 42 }, false))
+      .toBe(generic)
+  })
+
+  test("appends Error.message when verbose is true", () => {
+    expect(buildUserErrorMessage(generic, new Error("backend unreachable"), true))
+      .toBe(`${generic}\nbackend unreachable`)
+  })
+
+  test("stringifies non-Error values when verbose is true", () => {
+    expect(buildUserErrorMessage(generic, "plain string", true))
+      .toBe(`${generic}\nplain string`)
+    expect(buildUserErrorMessage(generic, 42, true))
+      .toBe(`${generic}\n42`)
+    expect(buildUserErrorMessage(generic, { code: 42 }, true))
+      .toBe(`${generic}\n[object Object]`)
+  })
+
+  test("collapses whitespace in the appended detail", () => {
+    const err = new Error("line one\n\tline two   line\n   three")
+    expect(buildUserErrorMessage(generic, err, true))
+      .toBe(`${generic}\nline one line two line three`)
+  })
+
+  test("returns the generic message when the error detail is empty", () => {
+    expect(buildUserErrorMessage(generic, new Error("   \n\t  "), true))
+      .toBe(generic)
+    expect(buildUserErrorMessage(generic, "", true)).toBe(generic)
+  })
+
+  test("truncates very long error messages to USER_ERROR_DETAIL_MAX_LENGTH", () => {
+    const longMessage = "x".repeat(USER_ERROR_DETAIL_MAX_LENGTH * 5)
+    const result = buildUserErrorMessage(generic, new Error(longMessage), true)
+    // detail line is bounded; total message is generic + "\n" + bounded detail
+    const detailLine = result.slice(generic.length + 1)
+    expect(detailLine.length).toBeLessThanOrEqual(USER_ERROR_DETAIL_MAX_LENGTH)
+    expect(detailLine.endsWith("...")).toBe(true)
+    expect(detailLine.length).toBe(USER_ERROR_DETAIL_MAX_LENGTH)
+    // The body before the trailing ellipsis is exactly maxLength - 3 characters
+    expect(detailLine.slice(0, -3)).toBe("x".repeat(USER_ERROR_DETAIL_MAX_LENGTH - 3))
+  })
+
+  test("does not truncate messages that fit within the limit", () => {
+    const detail = "y".repeat(USER_ERROR_DETAIL_MAX_LENGTH - 1)
+    const result = buildUserErrorMessage(generic, new Error(detail), true)
+    expect(result).toBe(`${generic}\n${detail}`)
+    expect(result.endsWith("...")).toBe(false)
+  })
+
+  test("truncates after collapsing whitespace", () => {
+    const detail = "a".repeat(USER_ERROR_DETAIL_MAX_LENGTH - 5) + " " + "b".repeat(200)
+    const result = buildUserErrorMessage(generic, new Error(detail), true)
+    const detailLine = result.slice(generic.length + 1)
+    // Collapsed form stays within maxLength after the "..." suffix
+    expect(detailLine.length).toBeLessThanOrEqual(USER_ERROR_DETAIL_MAX_LENGTH)
+    expect(detailLine.endsWith("...")).toBe(true)
+  })
+
+  test("respects a custom maxLength argument", () => {
+    const longMessage = "z".repeat(200)
+    const result = buildUserErrorMessage(generic, new Error(longMessage), true, 50)
+    const detailLine = result.slice(generic.length + 1)
+    expect(detailLine.length).toBe(50)
+    expect(detailLine.endsWith("...")).toBe(true)
+  })
+})
+
+describe("BaseConnector.userErrorMessage", () => {
+  const generic = "Could not list saved ACP sessions."
+
+  test("honors verboseErrors=false (default) by returning the generic message", () => {
+    const connector = new TestConnector()
+    expect(connector.formatUserError(generic, new Error("backend blew up")))
+      .toBe(generic)
+  })
+
+  test("appends the error detail when verboseErrors is enabled", () => {
+    // Toggle the instance flag via the protected field using a small hack.
+    // We do not expose a setter, so we cast through `unknown` to set the
+    // private field for the test only.
+    const connector = new TestConnector()
+    ;(connector as unknown as { verboseErrors: boolean }).verboseErrors = true
+    expect(connector.formatUserError(generic, new Error("backend blew up")))
+      .toBe(`${generic}\nbackend blew up`)
+  })
+
+  test("truncates the appended detail through the instance method", () => {
+    const connector = new TestConnector()
+    ;(connector as unknown as { verboseErrors: boolean }).verboseErrors = true
+    const longMessage = "q".repeat(USER_ERROR_DETAIL_MAX_LENGTH * 10)
+    const result = connector.formatUserError(generic, new Error(longMessage))
+    expect(result.length).toBeLessThanOrEqual(generic.length + 1 + USER_ERROR_DETAIL_MAX_LENGTH)
+    expect(result.endsWith("...")).toBe(true)
   })
 })

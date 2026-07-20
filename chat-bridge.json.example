@@ -10,6 +10,7 @@
   },
   "sessionStorePath": "./.opencode/chat-sessions.json",
   "defaultAgent": null,
+  "verboseErrors": false,
   "sessionPicker": {
     "enabled": false,
     "connectors": [],
