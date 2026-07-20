@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target node --format esm",
+    "prepack": "rm -rf dist && bun build src/index.ts --outdir dist --target node --format esm && bunx tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "check:connectors": "for f in connectors/*.ts; do bun build \"$f\" --outdir /tmp/opencode-chat-bridge-connector-check --target node --format esm >/dev/null || exit 1; done",
@@ -40,6 +41,9 @@
   ],
   "author": "ominiverdi",
   "license": "MIT",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/ominiverdi/opencode-chat-bridge"

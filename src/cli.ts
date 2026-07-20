@@ -3,9 +3,11 @@
  * OpenCode Chat CLI
  * Interactive CLI for chatting with OpenCode via ACP
  * 
- * SECURITY: The default agent (chat-bridge) is defined in opencode.json
- * with permission-based tool restrictions. This is enforced at the
- * OpenCode level, not via prompts, making it resistant to prompt injection.
+ * Permissions are resolved by the OpenCode backend from its configuration
+ * in the current working directory (opencode.json) or the user's global
+ * config (~/.config/opencode/opencode.json).  When installed globally the
+ * package does not ship or apply its own permission file -- tool access
+ * depends entirely on the backend configuration in use.
  * 
  * Usage: 
  *   bun src/cli.ts                    # Interactive mode
@@ -107,7 +109,7 @@ async function main() {
   })
   
   client.on("agent-set", (agent) => {
-    console.log(`Agent: ${agent} (permission-enforced security)`)
+    console.log(`Agent: ${agent} (permissions resolved by backend)`)
   })
   
   try {

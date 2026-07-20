@@ -48,3 +48,56 @@ jobs:
 
       - name: Type check
         run: bun run typecheck
+
+  pack:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Pack tarball
+        run: bun pm pack
+
+      - name: Verify tarball contents
+        run: |
+          tarball=$(ls opencode-chat-bridge-*.tgz)
+          echo "Tarball: $tarball"
+          tar tzf "$tarball" | grep 'dist/index\.js$'
+          tar tzf "$tarball" | grep 'dist/index\.d\.ts$'
+          tar tzf "$tarball" | grep 'src/cli\.ts$'
+
+      - name: Install tarball in temp project
+        run: |
+          tarball=$(ls opencode-chat-bridge-*.tgz)
+          mkdir -p /tmp/test-install
+          cd /tmp/test-install
+          bun init -y
+          bun install "$GITHUB_WORKSPACE/$tarball"
+          echo "Tarball installed successfully"
+
+      - name: Verify installed package
+        run: |
+          pkgdir=/tmp/test-install/node_modules/opencode-chat-bridge
+
+          # Library entry points must exist
+          test -f "$pkgdir/dist/index.js"
+          echo "dist/index.js: OK"
+          test -f "$pkgdir/dist/index.d.ts"
+          echo "dist/index.d.ts: OK"
+
+          # CLI source must exist (used by bin entry)
+          test -f "$pkgdir/src/cli.ts"
+          echo "src/cli.ts: OK"
+
+          # bin entry must be declared
+          grep -q '"chat-bridge"' "$pkgdir/package.json"
+          echo "bin entry: OK"

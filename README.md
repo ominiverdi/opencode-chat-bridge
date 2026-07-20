@@ -18,6 +18,7 @@ Bridge ACP-compatible agents such as [OpenCode](https://opencode.ai) and [Ferrum
 - [Connectors](#connectors) -- Matrix, Slack, WhatsApp, Mattermost, Discord, Telegram, Web
 - [Deployment Model](#deployment-model)
 - [Quick Start](#quick-start)
+- [Global Installation](#global-installation)
 - [Usage](#usage)
 - [ACP Backends](#acp-backends)
 - [Permissions](#permissions)
@@ -179,6 +180,49 @@ docker-compose up
 ```
 
 See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for detailed instructions.
+
+## Global Installation
+
+Install the CLI globally so `chat-bridge` is available from any directory.
+
+**Requirements:**
+
+- [Bun](https://bun.sh) must be installed and on `PATH` -- it is the runtime even when you install with npm
+- An ACP v1 backend such as [OpenCode](https://opencode.ai) must be installed and authenticated
+- **Node.js 22+** (for Matrix E2EE native crypto bindings)
+
+**With Bun (recommended):**
+
+```bash
+bun add --global opencode-chat-bridge
+```
+
+**With npm:**
+
+```bash
+npm install -g opencode-chat-bridge
+```
+
+After installation, verify the CLI is available:
+
+```bash
+chat-bridge --help
+```
+
+**Running the global CLI:**
+
+The CLI connects to whatever ACP backend is available in the current working directory. It reads `opencode.json` from `process.cwd()` or the user's global config (`~/.config/opencode/opencode.json`), so tool permissions depend on your local or global OpenCode configuration -- the package does not ship its own permission file.
+
+```bash
+# From a directory with an opencode.json
+cd ~/my-project
+chat-bridge
+
+# Or pass a prompt directly
+chat-bridge "What time is it?"
+```
+
+**Connectors** are not launched by the global CLI. To run a chat connector (Matrix, Slack, etc.), either clone the repository and use `bun connectors/<name>.ts`, or use [Docker](docs/DOCKER_SETUP.md) or [systemd](docs/SYSTEM_INSTALL.md) for persistent deployments.
 
 ## Usage
 
