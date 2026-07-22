@@ -353,6 +353,12 @@ ls ~/.cache/opencode-chat-bridge/sessions/telegram/
   connected OpenCode session.
 - **Bot privacy settings in groups** are independent of the `ignoreUsers`
   list. Both apply.
+- **Telegram bot messages are NOT end-to-end encrypted.** Conversations with
+  bots are cloud chats stored on Telegram's servers. Anyone with access to
+  those servers (including Telegram itself and bot developers) can read them.
+  Never send sensitive data to a bot. See [Telegram Bot Message
+  Privacy](SECURITY.md#telegram-bot-message-privacy) for details and
+  sources.
 - Review the [Security documentation](SECURITY.md) for the OpenCode
   permission model -- the connector enforces OpenCode's per-tool allowlist,
   not prompt-based restrictions.

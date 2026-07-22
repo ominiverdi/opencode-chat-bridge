@@ -252,6 +252,50 @@ If you need to expose the widget on a public website, put a reverse proxy with a
 
 The proxy handles login. The web connector serves the widget. Users must authenticate before they can reach the chat. This keeps the connector simple and moves auth to a dedicated layer where it belongs.
 
+## Telegram Bot Message Privacy
+
+### Messages Are Stored on Telegram's Servers
+
+Telegram bot conversations are **cloud chats**, not secret chats. According to Telegram's Privacy Policy:
+
+> "We store messages, photos, videos and documents from your cloud chats on our servers so that you can access your data from any of your devices anytime."
+> — [Telegram Privacy Policy, Section 3.3.1](https://telegram.org/privacy#3-3-1-cloud-chats)
+
+This means **anyone with access to Telegram's servers** — including Telegram employees and third parties who may gain access — can potentially read your bot messages. Only **Secret Chats** use end-to-end encryption; regular bot conversations do not.
+
+### Who Can Access Bot Messages
+
+- **Telegram (the company)** -- Full access to cloud chats. Messages are stored on their servers.
+- **Bot developers** -- Full access via Bot API. They receive every message you send to the bot.
+- **Law enforcement** -- Access with valid legal order. Telegram may disclose IP address and phone number.
+- **Other Telegram users** -- No access, unless you share messages manually.
+
+### Key Risks for Bot Users
+
+1. **No end-to-end encryption**: Bot messages are encrypted in transit and at rest on Telegram's servers, but Telegram holds the decryption keys.
+2. **Bot developers see everything**: When you message a bot, the bot developer receives your message and your public profile data (screen name, username, profile picture).
+3. **Telegram can read messages**: Unlike secret chats, cloud chats are not protected by end-to-end encryption that excludes Telegram.
+
+### What Telegram's Privacy Policy Says About Bots
+
+> "By performing any of these actions, you will be sending some of your data to the respective third-party bot developers."
+> — [Telegram Privacy Policy, Section 6.1](https://telegram.org/privacy#6-1-ecosystem)
+
+> "Bots will obviously get your messages when you send them something."
+> — [Telegram Privacy Policy, Section 6.3](https://telegram.org/privacy#6-3-what-data-bots-receive)
+
+### Recommendations
+
+- **Never send sensitive data** (passwords, financial info, personal identifiers) to Telegram bots
+- Use **allowedUsers** to restrict who can interact with your bot
+- Be aware that bot messages are **not private** in the same way Secret Chats are
+- Review the bot developer's privacy practices before trusting them with data
+
+### Sources
+
+- [Telegram Privacy Policy](https://telegram.org/privacy) — Sections 3.3.1 (Cloud Chats), 6.1-6.4 (Bot Messages)
+- [Telegram Bot API Documentation](https://core.telegram.org/bots/api)
+
 ## Chat-Level Security
 
 ### User Filtering
