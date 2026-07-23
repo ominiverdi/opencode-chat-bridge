@@ -189,6 +189,61 @@ describe("safe web message rendering", () => {
     expect(elements(root, "unsafe")).toHaveLength(0)
   })
 
+  test("renders GFM pipe tables with optional outer pipes and alignment", () => {
+    const root = render([
+      "Name | Description | Value",
+      ":--- | :---: | ---:",
+      "Area | Main floor | 25 m²",
+      "Cost | Estimate | €500",
+    ].join("\n"))
+
+    expect(elements(root, "table")).toHaveLength(1)
+    expect(elements(root, "th").map((cell) => cell.textContent)).toEqual([
+      "Name", "Description", "Value",
+    ])
+    expect(elements(root, "th").map((cell) => cell.attributes.style)).toEqual([
+      "text-align: left", "text-align: center", "text-align: right",
+    ])
+    expect(elements(root, "td").map((cell) => cell.textContent)).toEqual([
+      "Area", "Main floor", "25 m²", "Cost", "Estimate", "€500",
+    ])
+  })
+
+  test("supports escaped pipes, code, formatting, and safe links inside table cells", () => {
+    const root = render([
+      "| Item | Details |",
+      "| --- | --- |",
+      "| **A** | escaped \\| pipe |",
+      "| `x|y` | [site](https://example.com/path?q=1#table) |",
+    ].join("\n"))
+
+    expect(elements(root, "tbody")[0].childNodes).toHaveLength(2)
+    expect(elements(root, "td").map((cell) => cell.textContent)).toEqual([
+      "A", "escaped | pipe", "x|y", "site",
+    ])
+    expect(elements(root, "strong")[0].textContent).toBe("A")
+    expect(elements(root, "code")[0].textContent).toBe("x|y")
+    expect(links(root)[0].attributes).toEqual({
+      href: "https://example.com/path?q=1#table",
+      target: "_blank",
+      rel: "noopener noreferrer",
+    })
+  })
+
+  test("forms a complete table when its rows arrive across streamed chunks", () => {
+    const root = documentRef.createElement("div")
+    let streamed = "| Name | URL |\n| --- | --- |"
+    renderer.render(root, streamed, documentRef)
+    streamed += "\n| Map | https://example.com/map?q=1,2 |"
+    renderer.render(root, streamed, documentRef)
+
+    expect(elements(root, "tbody")[0].childNodes).toHaveLength(1)
+    expect(elements(root, "td").map((cell) => cell.textContent)).toEqual([
+      "Map", "https://example.com/map?q=1,2",
+    ])
+    expect(links(root)[0].attributes.href).toBe("https://example.com/map?q=1,2")
+  })
+
   test("allows only absolute HTTP(S) Markdown links", () => {
     const root = render([
       "[safe](https://example.com/path?q=1#top)",

@@ -198,6 +198,112 @@
     parent.appendChild(paragraph)
   }
 
+  function isEscaped(value, index) {
+    var backslashes = 0
+    for (var cursor = index - 1; cursor >= 0 && value.charAt(cursor) === "\\"; cursor--) {
+      backslashes++
+    }
+    return backslashes % 2 === 1
+  }
+
+  function splitTableRow(line) {
+    var value = line.trim()
+    var hasSeparator = false
+    var inCode = false
+    for (var probe = 0; probe < value.length; probe++) {
+      var probeCharacter = value.charAt(probe)
+      if (probeCharacter === "`" && !isEscaped(value, probe)) inCode = !inCode
+      if (probeCharacter === "|" && !inCode && !isEscaped(value, probe)) {
+        hasSeparator = true
+        break
+      }
+    }
+    if (!hasSeparator) return null
+
+    if (value.charAt(0) === "|") value = value.slice(1)
+    if (value.charAt(value.length - 1) === "|" && !isEscaped(value, value.length - 1)) {
+      value = value.slice(0, -1)
+    }
+
+    var cells = []
+    var cell = ""
+    inCode = false
+    for (var index = 0; index < value.length; index++) {
+      var character = value.charAt(index)
+      if (character === "`" && !isEscaped(value, index)) {
+        inCode = !inCode
+        cell += character
+        continue
+      }
+      if (character === "|" && !inCode && !isEscaped(value, index)) {
+        cells.push(cell.trim())
+        cell = ""
+        continue
+      }
+      if (character === "|" && isEscaped(value, index) && cell.charAt(cell.length - 1) === "\\") {
+        cell = cell.slice(0, -1)
+      }
+      cell += character
+    }
+    cells.push(cell.trim())
+    return cells
+  }
+
+  function tableDelimiter(cells) {
+    if (!cells || cells.length === 0) return null
+    var alignments = []
+    for (var index = 0; index < cells.length; index++) {
+      var value = cells[index].replace(/\s+/g, "")
+      if (!/^:?-{3,}:?$/.test(value)) return null
+      alignments.push(
+        value.charAt(0) === ":" && value.charAt(value.length - 1) === ":" ? "center" :
+          value.charAt(value.length - 1) === ":" ? "right" :
+            value.charAt(0) === ":" ? "left" : null,
+      )
+    }
+    return alignments
+  }
+
+  function appendTableCell(row, tagName, content, alignment, documentRef) {
+    var cell = documentRef.createElement(tagName)
+    if (alignment) cell.setAttribute("style", "text-align: " + alignment)
+    appendInline(cell, content, documentRef)
+    row.appendChild(cell)
+  }
+
+  function appendTable(parent, lines, startIndex, documentRef) {
+    if (startIndex + 1 >= lines.length) return 0
+    var headers = splitTableRow(lines[startIndex])
+    var delimiters = splitTableRow(lines[startIndex + 1])
+    var alignments = tableDelimiter(delimiters)
+    if (!headers || !alignments || headers.length !== alignments.length) return 0
+
+    var table = documentRef.createElement("table")
+    var tableHead = documentRef.createElement("thead")
+    var headerRow = documentRef.createElement("tr")
+    for (var column = 0; column < headers.length; column++) {
+      appendTableCell(headerRow, "th", headers[column], alignments[column], documentRef)
+    }
+    tableHead.appendChild(headerRow)
+    table.appendChild(tableHead)
+
+    var tableBody = documentRef.createElement("tbody")
+    var index = startIndex + 2
+    for (; index < lines.length; index++) {
+      if (!lines[index].trim()) break
+      var values = splitTableRow(lines[index])
+      if (!values) break
+      var bodyRow = documentRef.createElement("tr")
+      for (column = 0; column < headers.length; column++) {
+        appendTableCell(bodyRow, "td", values[column] || "", alignments[column], documentRef)
+      }
+      tableBody.appendChild(bodyRow)
+    }
+    table.appendChild(tableBody)
+    parent.appendChild(table)
+    return index - startIndex
+  }
+
   function renderMessage(container, source, documentRef) {
     var doc = documentRef || container.ownerDocument || global.document
     while (container.firstChild) container.removeChild(container.firstChild)
@@ -229,6 +335,17 @@
         code.appendChild(doc.createTextNode(codeLines.join("\n")))
         pre.appendChild(code)
         container.appendChild(pre)
+        continue
+      }
+
+      var possibleHeaders = splitTableRow(line)
+      var possibleAlignments = index + 1 < lines.length
+        ? tableDelimiter(splitTableRow(lines[index + 1]))
+        : null
+      if (possibleHeaders && possibleAlignments && possibleHeaders.length === possibleAlignments.length) {
+        flushParagraph()
+        var tableLines = appendTable(container, lines, index, doc)
+        index += tableLines
         continue
       }
 

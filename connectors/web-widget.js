@@ -170,6 +170,7 @@
       ".oc-msg-text>p+*,.oc-msg-text>pre+*,.oc-msg-text>ul+*,.oc-msg-text>ol+*,.oc-msg-text>h1+*,.oc-msg-text>h2+*,.oc-msg-text>h3+*,.oc-msg-text>h4+*,.oc-msg-text>h5+*,.oc-msg-text>h6+*{margin-top:8px;}",
       ".oc-msg-text h1{font-size:1.5em}.oc-msg-text h2{font-size:1.35em}.oc-msg-text h3{font-size:1.2em}.oc-msg-text h4,.oc-msg-text h5,.oc-msg-text h6{font-size:1.05em}",
       ".oc-msg-text ul,.oc-msg-text ol{padding-left:20px;}.oc-msg-text pre{padding:8px;background:rgba(15,23,42,.08);border-radius:6px;overflow-x:auto;white-space:pre-wrap;}.oc-msg-text code{font-family:monospace;}.oc-msg-text a{color:#2563eb;text-decoration:underline;overflow-wrap:anywhere;}",
+      ".oc-msg-text{overflow-x:auto;}.oc-msg-text table{width:100%;border-collapse:collapse;font-size:13px;}.oc-msg-text th,.oc-msg-text td{padding:6px 8px;border:1px solid #cbd5e1;vertical-align:top;}.oc-msg-text th{font-weight:600;background:rgba(15,23,42,.06);}",
 
       // --- Activity ---
       ".oc-activity{align-self:flex-start;font-size:12px;color:#6b7280;background:#f3f4f6;padding:6px 10px;border-left:3px solid #9ca3af;border-radius:4px;font-family:monospace;margin:4px 0;}",
