@@ -900,6 +900,23 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     
     return session
   }
+
+  /**
+   * Discard the current ACP client and persisted backend session mapping, then
+   * create a new ACP process and session for the same connector thread.
+   */
+  protected async recreateACPSession(
+    id: string,
+    createSessionData: (client: ACPClient) => TSession,
+  ): Promise<TSession | null> {
+    const existing = this.sessionManager.get(id)
+    if (existing) {
+      await existing.client.disconnect()
+      this.sessionManager.delete(id)
+    }
+    await this.acpSessionStore.delete(this.config.connector, id)
+    return this.getOrCreateSession(id, createSessionData)
+  }
   
   private get backendId(): string {
     if (this.acpConfig.backendId) return this.acpConfig.backendId

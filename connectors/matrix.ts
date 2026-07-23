@@ -97,6 +97,7 @@ import {
   buildThreadRelation,
   shouldHandleThreadReply,
 } from "./matrix-thread-helpers"
+import { diagnoseEmptyResponse } from "./matrix-response-diagnostics"
 
 // =============================================================================
 // Session Type
@@ -447,118 +448,224 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
   // ---------------------------------------------------------------------------
 
   private async processQuery(context: MatrixEventContext, query: string): Promise<void> {
-    const startTime = Date.now()
-
     if (this.isQueryActive(context.sessionId)) {
       await this.sendReply(context, "A request is already running. Please wait for it to finish.")
       return
     }
-    this.markQueryActive(context.sessionId)
 
-    const session = await this.getOrCreateSession(context.sessionId, (client) =>
-      this.createSession(client)
+    let activeClient: ACPClient | null = null
+    const activeQuery = this.markQueryActive(context.sessionId, () => activeClient?.cancel())
+    const startTime = Date.now()
+    const initialSession = await this.getOrCreateSession(
+      context.sessionId,
+      (client) => this.createSession(client),
     )
-
-    if (!session) {
-      await this.sendReply(context, "Sorry, I couldn't connect to the AI service.")
+    if (!initialSession) {
+      try {
+        await this.sendReply(context, "Sorry, I couldn't connect to the AI service.")
+      } finally {
+        this.markQueryDone(context.sessionId, activeQuery)
+      }
       return
     }
+    activeClient = initialSession.client
 
-    session.messageCount++
-    session.lastActivity = new Date()
-    session.inputChars += query.length
-    // Track the incoming event for m.in_reply_to chain
-    session.lastEventIds.set(context.replyThreadRootId, context.eventId)
+    const runAttempt = async (session: RoomSession) => {
+      const client = session.client
+      activeClient = client
+      let responseBuffer = ""
+      let chunkCount = 0
+      let toolResultsBuffer = ""
+      let toolCallCount = 0
+      let hadToolActivity = false
+      let imageCount = 0
+      const sentToolOutputs = new Set<string>()
+      const toolActivity = new ToolActivityController(config.toolMessages, {
+        create: (text) => this.createToolActivityMessage(context, text),
+        update: (eventId, text) => this.updateToolActivityMessage(context, eventId, text),
+        onError: (error) => this.logError("Failed to update tool activity:", error),
+      }, {
+        sendEvent: (message) => this.sendNoticeReply(context, `> ${message}`),
+        onToolStart: () => {
+          hadToolActivity = true
+          toolCallCount++
+        },
+      })
 
-    const client = session.client
-
-    let responseBuffer = ""
-    let toolResultsBuffer = ""
-    let toolCallCount = 0
-    const sentToolOutputs = new Set<string>()
-    const toolActivity = new ToolActivityController(config.toolMessages, {
-      create: (text) => this.createToolActivityMessage(context, text),
-      update: (eventId, text) => this.updateToolActivityMessage(context, eventId, text),
-      onError: (error) => this.logError("Failed to update tool activity:", error),
-    }, {
-      sendEvent: (message) => this.sendNoticeReply(context, `> ${message}`),
-      onToolStart: () => { toolCallCount++ },
-    })
-
-    const chunkHandler = (text: string) => { responseBuffer += text }
-
-    const updateHandler = async (update: any) => {
-      if (update.type === "tool_result" && update.toolResult) {
-        toolResultsBuffer += update.toolResult
-
-        const toolName = update.toolName || ""
-        const shouldShow = shouldShowToolOutput(toolName, config.toolMessages)
-
-        if (!shouldShow) {
-          this.log(`[RESULT] Skipping ${toolName} result (not in toolMessages.showOutputFor)`)
-          return
-        }
-
-        const maxLen = 2000
-        const result = update.toolResult.length > maxLen
-          ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
-          : update.toolResult
-
-        const trimmed = result.trim()
-        if (!trimmed) return
-
-        const contentHash = trimmed.slice(0, 100)
-        if (sentToolOutputs.has(contentHash)) return
-
-        sentToolOutputs.add(contentHash)
-        try {
-          await this.sendReply(context, trimmed)
-        } catch (err) {
-          this.log(`[RESULT] Error sending: ${err}`)
-        }
+      const chunkHandler = (chunk: string) => {
+        chunkCount++
+        responseBuffer += chunk
       }
+      client.on("chunk", chunkHandler)
 
-      if (update.type === "tool_output_delta" && update.partialOutput) {
-        const toolName = update.toolName || ""
-        const shouldStream = shouldShowToolOutput(toolName, config.toolMessages)
+      const updateHandler = async (update: any) => {
+        if (update.type === "tool_result" && update.toolResult) {
+          hadToolActivity = true
+          toolResultsBuffer += update.toolResult
 
-        if (shouldStream) {
-          const output = update.partialOutput.trim()
-          if (output) {
-            const contentHash = output.slice(0, 100)
-            if (!sentToolOutputs.has(contentHash)) {
-              sentToolOutputs.add(contentHash)
-              await this.sendReply(context, output)
-              this.log(`[STREAM] Sent ${toolName} output (${output.length} chars)`)
+          const toolName = update.toolName || ""
+          if (!shouldShowToolOutput(toolName, config.toolMessages)) {
+            this.log(`[RESULT] Skipping ${toolName} result (not in toolMessages.showOutputFor)`)
+            return
+          }
+
+          const maxLen = 2000
+          const result = update.toolResult.length > maxLen
+            ? update.toolResult.slice(0, maxLen) + "\n... (truncated)"
+            : update.toolResult
+          const trimmed = result.trim()
+          if (!trimmed) return
+
+          const contentHash = trimmed.slice(0, 100)
+          if (sentToolOutputs.has(contentHash)) return
+          sentToolOutputs.add(contentHash)
+          try {
+            await this.sendReply(context, trimmed)
+          } catch (err) {
+            this.log(`[RESULT] Error sending: ${err}`)
+          }
+        }
+
+        if (update.type === "tool_output_delta" && update.partialOutput) {
+          hadToolActivity = true
+          const toolName = update.toolName || ""
+          if (shouldShowToolOutput(toolName, config.toolMessages)) {
+            const output = update.partialOutput.trim()
+            if (output) {
+              const contentHash = output.slice(0, 100)
+              if (!sentToolOutputs.has(contentHash)) {
+                sentToolOutputs.add(contentHash)
+                await this.sendReply(context, output)
+                this.log(`[STREAM] Sent ${toolName} output (${output.length} chars)`)
+              }
             }
           }
         }
       }
-    }
+      client.on("update", updateHandler)
 
-    const imageHandler = async (image: ImageContent) => {
-      this.log(`Received image: ${image.mimeType}`)
-      await this.sendImageFromBase64(context, image)
-    }
+      const imageHandler = async (image: ImageContent) => {
+        imageCount++
+        this.log(`Received image: ${image.mimeType}`)
+        await this.sendImageFromBase64(context, image)
+      }
+      client.on("image", imageHandler)
 
-    const permissionHandler = async (event: { permission: string; path: string | null; message: string }) => {
-      this.log(`[PERMISSION] Rejected: ${event.permission}${event.path ? ` (${event.path})` : ""}`)
-      await this.sendNoticeReply(context, `> ${event.message}`)
-    }
+      const permissionHandler = async (event: { permission: string; path: string | null; message: string }) => {
+        hadToolActivity = true
+        this.log(`[PERMISSION] Rejected: ${event.permission}${event.path ? ` (${event.path})` : ""}`)
+        await this.sendNoticeReply(context, `> ${event.message}`)
+      }
+      client.on("permission_rejected", permissionHandler)
+      client.on("activity", toolActivity.handleActivity)
+      client.on("tool_activity", toolActivity.handleRevision)
 
-    client.on("activity", toolActivity.handleActivity)
-    client.on("tool_activity", toolActivity.handleRevision)
-    client.on("chunk", chunkHandler)
-    client.on("update", updateHandler)
-    client.on("image", imageHandler)
-    client.on("permission_rejected", permissionHandler)
+      try {
+        const acpResponse = await client.prompt(query)
+        return {
+          acpResponse,
+          responseBuffer,
+          chunkCount,
+          toolCallCount,
+          hadToolActivity,
+          imageCount,
+          toolResultsBuffer,
+        }
+      } finally {
+        await toolActivity.flush()
+        client.off("activity", toolActivity.handleActivity)
+        client.off("tool_activity", toolActivity.handleRevision)
+        client.off("chunk", chunkHandler)
+        client.off("update", updateHandler)
+        client.off("image", imageHandler)
+        client.off("permission_rejected", permissionHandler)
+      }
+    }
 
     try {
-      await client.prompt(query)
+      let session = initialSession
+      session.messageCount++
+      session.inputChars += query.length
+      session.lastEventIds.set(context.replyThreadRootId, context.eventId)
 
-      // Process images from tool results
+      let attempt = await runAttempt(session)
+      let cleanResponse = sanitizeServerPaths(removeImageMarkers(attempt.responseBuffer))
+      let diagnostic = diagnoseEmptyResponse(attempt.acpResponse, attempt.responseBuffer, cleanResponse)
+
+      if (diagnostic?.source === "bridge-capture-lost") {
+        this.log(
+          `[ACP] Captured response recovery source=${diagnostic.source} ` +
+          `acpChars=${diagnostic.acpChars} bridgeChars=${diagnostic.bridgeChars} ` +
+          `cleanChars=${diagnostic.cleanChars} chunks=${attempt.chunkCount} [${context.sessionId}]`,
+        )
+        attempt.responseBuffer = attempt.acpResponse
+        cleanResponse = sanitizeServerPaths(removeImageMarkers(attempt.responseBuffer))
+        diagnostic = diagnoseEmptyResponse(attempt.acpResponse, attempt.responseBuffer, cleanResponse)
+      }
+
+      if (diagnostic) {
+        this.log(
+          `[ACP] Empty response attempt=1 source=${diagnostic.source} ` +
+          `acpChars=${diagnostic.acpChars} bridgeChars=${diagnostic.bridgeChars} ` +
+          `cleanChars=${diagnostic.cleanChars} chunks=${attempt.chunkCount} ` +
+          `tools=${attempt.toolCallCount} toolActivity=${attempt.hadToolActivity} ` +
+          `images=${attempt.imageCount} [${context.sessionId}]`,
+        )
+
+        if (!attempt.hadToolActivity && attempt.imageCount === 0) {
+          this.log(`[ACP] Retrying once with a fresh client/session [${context.sessionId}]`)
+          const retrySession = await this.recreateACPSession(
+            context.sessionId,
+            (client) => this.createSession(client),
+          )
+          if (!retrySession) throw new Error("Failed to create a fresh ACP session for retry")
+          session = retrySession
+          session.messageCount++
+          session.inputChars += query.length
+          session.lastEventIds.set(context.replyThreadRootId, context.eventId)
+          attempt = await runAttempt(session)
+          cleanResponse = sanitizeServerPaths(removeImageMarkers(attempt.responseBuffer))
+          diagnostic = diagnoseEmptyResponse(attempt.acpResponse, attempt.responseBuffer, cleanResponse)
+
+          if (diagnostic?.source === "bridge-capture-lost") {
+            this.log(
+              `[ACP] Captured response recovery attempt=2 source=${diagnostic.source} ` +
+              `acpChars=${diagnostic.acpChars} bridgeChars=${diagnostic.bridgeChars} ` +
+              `cleanChars=${diagnostic.cleanChars} chunks=${attempt.chunkCount} [${context.sessionId}]`,
+            )
+            attempt.responseBuffer = attempt.acpResponse
+            cleanResponse = sanitizeServerPaths(removeImageMarkers(attempt.responseBuffer))
+            diagnostic = diagnoseEmptyResponse(attempt.acpResponse, attempt.responseBuffer, cleanResponse)
+          }
+
+          if (diagnostic) {
+            this.log(
+              `[ACP] Empty response attempt=2 source=${diagnostic.source} ` +
+              `acpChars=${diagnostic.acpChars} bridgeChars=${diagnostic.bridgeChars} ` +
+              `cleanChars=${diagnostic.cleanChars} chunks=${attempt.chunkCount} ` +
+              `tools=${attempt.toolCallCount} toolActivity=${attempt.hadToolActivity} ` +
+              `images=${attempt.imageCount} [${context.sessionId}]`,
+            )
+          }
+        }
+      }
+
+      if (diagnostic) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+        this.log(
+          `[FAIL] ${elapsed}s empty ACP response source=${diagnostic.source} ` +
+          `acpChars=${diagnostic.acpChars} bridgeChars=${diagnostic.bridgeChars} ` +
+          `cleanChars=${diagnostic.cleanChars} [${context.sessionId}]`,
+        )
+        await this.sendReply(
+          context,
+          "Sorry, the ACP backend completed without returning a usable response. Please try again.",
+        )
+        return
+      }
+
       const uploadedPaths = new Set<string>()
-      const toolPaths = extractImagePaths(toolResultsBuffer)
+      const toolPaths = extractImagePaths(attempt.toolResultsBuffer)
       for (const imagePath of toolPaths) {
         if (fs.existsSync(imagePath)) {
           this.log(`Uploading image from tool result: ${imagePath}`)
@@ -567,7 +674,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
         }
       }
 
-      const responsePaths = extractImagePaths(responseBuffer)
+      const responsePaths = extractImagePaths(attempt.responseBuffer)
       for (const imagePath of responsePaths) {
         if (uploadedPaths.has(imagePath)) continue
         if (fs.existsSync(imagePath)) {
@@ -576,31 +683,22 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
         }
       }
 
-      // Send final response (never deduplicate against tool outputs)
-      const cleanResponse = sanitizeServerPaths(removeImageMarkers(responseBuffer))
-      if (cleanResponse) {
-        session.outputChars += cleanResponse.length
-        await this.sendReply(context, cleanResponse)
-      }
+      session.outputChars += cleanResponse.length
+      await this.sendReply(context, cleanResponse)
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      const outChars = cleanResponse ? cleanResponse.length : 0
-      const tools = toolCallCount > 0 ? `, ${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}` : ""
-      this.log(`[DONE] ${elapsed}s (${outChars} chars${tools}) [${context.sessionId}]`)
+      const tools = attempt.toolCallCount > 0
+        ? `, ${attempt.toolCallCount} tool${attempt.toolCallCount > 1 ? "s" : ""}`
+        : ""
+      this.log(`[DONE] ${elapsed}s (${cleanResponse.length} chars${tools}) [${context.sessionId}]`)
     } catch (err) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
       this.logError(`[FAIL] ${elapsed}s [${context.sessionId}]:`, err)
       await this.sendReply(context, "Sorry, something went wrong processing your request.")
     } finally {
-      await toolActivity.flush()
-      client.off("activity", toolActivity.handleActivity)
-      client.off("tool_activity", toolActivity.handleRevision)
-      client.off("chunk", chunkHandler)
-      client.off("update", updateHandler)
-      client.off("image", imageHandler)
-      client.off("permission_rejected", permissionHandler)
+      const session = this.sessionManager.get(context.sessionId)
       if (session) session.lastActivity = new Date()
-      this.markQueryDone(context.sessionId)
+      this.markQueryDone(context.sessionId, activeQuery)
     }
   }
 
