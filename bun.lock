@@ -20,6 +20,9 @@
       },
     },
   },
+  "trustedDependencies": [
+    "@matrix-org/matrix-sdk-crypto-nodejs",
+  ],
   "packages": {
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@0.13.1", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, ""],
 
