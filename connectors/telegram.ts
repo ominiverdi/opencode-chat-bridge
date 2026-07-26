@@ -125,37 +125,64 @@ async function telegramHttpError(res: Response, context: string): Promise<Telegr
   return new TelegramApiError(`${context} HTTP ${res.status}${suffix}`, status, retryAfter)
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Maximum number of retries for 429 (rate-limit) errors on outbound calls. */
+const MAX_429_RETRIES = 5
+/** Default retry_after fallback when Telegram omits it (seconds). */
+const DEFAULT_RETRY_AFTER = 5
+
 /**
  * Issue a JSON POST to the Telegram Bot API. Throws TelegramApiError on
- * non-OK responses. Adds no runtime dependencies.
+ * non-OK responses. Automatically retries on HTTP 429 (rate-limit) errors,
+ * honouring the server-provided `retry_after` delay.
  */
 async function tgApi<T = unknown>(method: string, body: Record<string, unknown> = {}): Promise<T> {
   const url = `${TG_API_BASE}/${method}`
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
 
-  // Telegram may return JSON errors even for non-2xx responses.
-  if (!res.ok) {
-    throw await telegramHttpError(res, `Telegram API ${method}`)
-  }
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
 
-  // JSON parse errors are surfaced as exceptions from .json()
-  const json = (await res.json()) as TelegramApiResponse<T>
-  if (!json.ok) {
-    throw new TelegramApiError(
-      json.description || `Telegram API ${method} failed`,
-      json.error_code,
-      json.parameters?.retry_after
-    )
+    // Telegram may return JSON errors even for non-2xx responses.
+    if (!res.ok) {
+      const err = await telegramHttpError(res, `Telegram API ${method}`)
+      if (res.status === 429 && attempt < MAX_429_RETRIES) {
+        const delay = (err.retryAfter ?? DEFAULT_RETRY_AFTER) * 1000
+        console.warn(`[tgApi] 429 on ${method} (attempt ${attempt + 1}/${MAX_429_RETRIES}), retrying in ${delay}ms`)
+        await sleep(delay)
+        continue
+      }
+      throw err
+    }
+
+    // JSON parse errors are surfaced as exceptions from .json()
+    const json = (await res.json()) as TelegramApiResponse<T>
+    if (!json.ok) {
+      const err = new TelegramApiError(
+        json.description || `Telegram API ${method} failed`,
+        json.error_code,
+        json.parameters?.retry_after
+      )
+      // Telegram may return HTTP 200 with error_code 429
+      if (json.error_code === 429 && attempt < MAX_429_RETRIES) {
+        const delay = (json.parameters?.retry_after ?? DEFAULT_RETRY_AFTER) * 1000
+        console.warn(`[tgApi] 429 on ${method} (attempt ${attempt + 1}/${MAX_429_RETRIES}), retrying in ${delay}ms`)
+        await sleep(delay)
+        continue
+      }
+      throw err
+    }
+    return json.result as T
   }
-  return json.result as T
 }
 
 /**
  * Multipart upload for files (photo / document).
+ * Automatically retries on HTTP 429 (rate-limit) errors.
  */
 async function tgUpload<T = unknown>(
   method: string,
@@ -164,27 +191,44 @@ async function tgUpload<T = unknown>(
   fileField: string
 ): Promise<T> {
   const url = `${TG_API_BASE}/${method}`
-  const form = new FormData()
-  for (const [k, v] of Object.entries(fields)) {
-    form.append(k, v)
-  }
-  const buffer = fs.readFileSync(filePath)
-  form.append(fileField, new Blob([buffer]), path.basename(filePath))
 
-  const res = await fetch(url, { method: "POST", body: form })
+  for (let attempt = 0; ; attempt++) {
+    const form = new FormData()
+    for (const [k, v] of Object.entries(fields)) {
+      form.append(k, v)
+    }
+    const buffer = fs.readFileSync(filePath)
+    form.append(fileField, new Blob([buffer]), path.basename(filePath))
 
-  if (!res.ok) {
-    throw await telegramHttpError(res, `Telegram upload ${method}`)
+    const res = await fetch(url, { method: "POST", body: form })
+
+    if (!res.ok) {
+      const err = await telegramHttpError(res, `Telegram upload ${method}`)
+      if (res.status === 429 && attempt < MAX_429_RETRIES) {
+        const delay = (err.retryAfter ?? DEFAULT_RETRY_AFTER) * 1000
+        console.warn(`[tgUpload] 429 on ${method} (attempt ${attempt + 1}/${MAX_429_RETRIES}), retrying in ${delay}ms`)
+        await sleep(delay)
+        continue
+      }
+      throw err
+    }
+    const json = (await res.json()) as TelegramApiResponse<T>
+    if (!json.ok) {
+      const err = new TelegramApiError(
+        json.description || `Telegram upload ${method} failed`,
+        json.error_code,
+        json.parameters?.retry_after
+      )
+      if (json.error_code === 429 && attempt < MAX_429_RETRIES) {
+        const delay = (json.parameters?.retry_after ?? DEFAULT_RETRY_AFTER) * 1000
+        console.warn(`[tgUpload] 429 on ${method} (attempt ${attempt + 1}/${MAX_429_RETRIES}), retrying in ${delay}ms`)
+        await sleep(delay)
+        continue
+      }
+      throw err
+    }
+    return json.result as T
   }
-  const json = (await res.json()) as TelegramApiResponse<T>
-  if (!json.ok) {
-    throw new TelegramApiError(
-      json.description || `Telegram upload ${method} failed`,
-      json.error_code,
-      json.parameters?.retry_after
-    )
-  }
-  return json.result as T
 }
 
 /**
