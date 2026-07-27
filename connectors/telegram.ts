@@ -1191,14 +1191,17 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
   private async processQuery(context: TelegramEventContext, query: string): Promise<void> {
     const startTime = Date.now()
 
-    // Best-effort typing indicator (do not await; ignore failures)
-    this.sendChatAction(context, "typing").catch(() => {})
-
     // Guard against concurrent queries on the same session
     if (this.isQueryActive(context.sessionId)) {
       await this.sendReply(context, "A request is already running. Please wait for it to finish.")
       return
     }
+
+    // Best-effort typing indicator: send immediately and repeat every ~4 seconds
+    // until the query completes. Telegram's typing action expires after ~5s.
+    const sendTyping = () => this.sendChatAction(context, "typing").catch(() => {})
+    sendTyping()
+    const typingInterval = setInterval(sendTyping, 4000)
 
     // Mark active and ensure the handle is cleared in `finally` so a
     // session-creation failure cannot leave the session permanently
@@ -1356,6 +1359,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
         this.logError(`[FAIL] ${elapsed}s [${context.sessionId}]:`, err)
         await this.sendReply(context, CommandHandler.formatProcessingErrorMessage())
       } finally {
+        clearInterval(typingInterval)
         await toolActivity.flush()
         client.off("activity", toolActivity.handleActivity)
         client.off("tool_activity", toolActivity.handleRevision)
@@ -1369,6 +1373,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
         // even on session-creation failure.
       }
     } finally {
+      clearInterval(typingInterval)
       this.markQueryDone(context.sessionId, activeQuery)
     }
   }
