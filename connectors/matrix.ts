@@ -182,7 +182,35 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
     this.log("Stopping...")
     await this.disconnectAllSessions()
     if (this.matrix) this.matrix.stop()
+    // Explicitly close the Rust OlmMachine so its background tokio tasks
+    // stop before the process exits. Otherwise the napi-rs cleanup hook
+    // drops the tokio runtime while a JS callback is still pending,
+    // causing:
+    //   panicked at .../napi-2.16.17/src/tokio_runtime.rs:114:47:
+    //   called `Option::unwrap()` on a `None` value
+    this.closeCryptoEngine()
     this.log("Stopped.")
+  }
+
+  /**
+   * Close the native Rust crypto engine (OlmMachine) if E2EE is enabled.
+   *
+   * The matrix-bot-sdk does not expose a close hook for the underlying
+   * OlmMachine, but failing to close it leaves tokio tasks pending. When
+   * the Bun process exits, the napi-rs env cleanup drops the tokio
+   * runtime, and any thread-safe function callback that fires afterwards
+   * panics on `Option::unwrap()`.
+   */
+  private closeCryptoEngine(): void {
+    try {
+      const crypto = (this.matrix as any)?.crypto
+      const machine = crypto?.engine?.machine
+      if (machine && typeof machine.close === "function") {
+        machine.close()
+      }
+    } catch (err) {
+      this.logError("Failed to close crypto engine (ignoring):", err)
+    }
   }
 
   async sendMessage(roomId: string, text: string): Promise<void> {
