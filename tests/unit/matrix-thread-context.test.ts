@@ -5,6 +5,7 @@
 import { describe, test, expect } from "bun:test"
 import {
   extractThreadRootId,
+  extractReplyTargetId,
   resolveThreadRoot,
   buildMatrixSessionId,
   normalizeMatrixEventContext,
@@ -51,6 +52,83 @@ describe("extractThreadRootId", () => {
     expect(extractThreadRootId({})).toBe("")
     expect(extractThreadRootId(null)).toBe("")
     expect(extractThreadRootId(undefined)).toBe("")
+  })
+})
+
+// =============================================================================
+// extractReplyTargetId
+// =============================================================================
+
+describe("extractReplyTargetId", () => {
+  test("returns m.thread root regardless of isolation", () => {
+    const event = {
+      content: {
+        "m.relates_to": {
+          rel_type: "m.thread",
+          event_id: "$root123",
+          "m.in_reply_to": { event_id: "$some_msg" },
+        },
+      },
+    }
+    expect(extractReplyTargetId(event, true)).toBe("$root123")
+    expect(extractReplyTargetId(event, false)).toBe("$root123")
+  })
+
+  test("returns m.in_reply_to target when isolation is off", () => {
+    const event = {
+      content: {
+        "m.relates_to": {
+          "m.in_reply_to": { event_id: "$reply_target" },
+        },
+      },
+    }
+    expect(extractReplyTargetId(event, false)).toBe("$reply_target")
+  })
+
+  test("ignores m.in_reply_to when isolation is on", () => {
+    const event = {
+      content: {
+        "m.relates_to": {
+          "m.in_reply_to": { event_id: "$reply_target" },
+        },
+      },
+    }
+    expect(extractReplyTargetId(event, true)).toBe("")
+  })
+
+  test("falls back to legacy top-level m.in_reply_to when isolation is off", () => {
+    const event = {
+      content: {
+        "m.in_reply_to": { event_id: "$legacy_target" },
+      },
+    }
+    expect(extractReplyTargetId(event, false)).toBe("$legacy_target")
+    expect(extractReplyTargetId(event, true)).toBe("")
+  })
+
+  test("returns empty string for plain (non-reply) messages", () => {
+    const event = { content: { body: "hello" } }
+    expect(extractReplyTargetId(event, false)).toBe("")
+    expect(extractReplyTargetId(event, true)).toBe("")
+  })
+
+  test("returns empty string for missing content", () => {
+    expect(extractReplyTargetId({}, false)).toBe("")
+    expect(extractReplyTargetId(null, false)).toBe("")
+    expect(extractReplyTargetId(undefined, false)).toBe("")
+  })
+
+  test("prefers m.thread when both relations are present and isolation is off", () => {
+    const event = {
+      content: {
+        "m.relates_to": {
+          rel_type: "m.thread",
+          event_id: "$thread_root",
+          "m.in_reply_to": { event_id: "$reply_target" },
+        },
+      },
+    }
+    expect(extractReplyTargetId(event, false)).toBe("$thread_root")
   })
 })
 

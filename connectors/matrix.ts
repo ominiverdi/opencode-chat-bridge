@@ -84,6 +84,7 @@ const TOKEN_FILE_PATH = path.join(STORAGE_PATH, "access_token")
 export {
   type MatrixEventContext,
   extractThreadRootId,
+  extractReplyTargetId,
   resolveThreadRoot,
   buildMatrixSessionId,
   normalizeMatrixEventContext,
@@ -92,7 +93,7 @@ export {
 } from "./matrix-thread-helpers"
 import {
   type MatrixEventContext,
-  extractThreadRootId,
+  extractReplyTargetId,
   normalizeMatrixEventContext,
   buildThreadRelation,
   shouldHandleThreadReply,
@@ -106,6 +107,8 @@ import { diagnoseEmptyResponse } from "../src/acp-response-diagnostics"
 interface RoomSession extends BaseSession {
   /** Track the last event ID sent in each thread for m.in_reply_to fallback */
   lastEventIds: Map<string, string>
+  /** Every event ID the bot has sent in this session, used to detect replies to the bot */
+  botSentEventIds: Set<string>
 }
 
 // =============================================================================
@@ -204,6 +207,17 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
   }
 
   /**
+   * Record an event ID the bot sent so we can detect replies to ourselves.
+   * No-op if there is no live session for the context (the set is in-memory
+   * and lives as long as the session does).
+   */
+  private recordBotEventId(context: MatrixEventContext, eventId: string): void {
+    if (!eventId) return
+    const session = this.sessionManager.get(context.sessionId)
+    if (session) session.botSentEventIds.add(eventId)
+  }
+
+  /**
    * Send a reply, respecting threadIsolation config.
    * When true: send as thread reply with m.relates_to.
    * When false: send plain message to room.
@@ -239,10 +253,25 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
         if (session && eventId) {
           session.lastEventIds.set(context.replyThreadRootId, eventId)
         }
+        this.recordBotEventId(context, eventId)
         return eventId
       } else {
-        await this.sendMessage(context.roomId, text)
-        return null
+        // Inline the send so we can capture the eventId for reply detection.
+        let content: any
+        if (FORMAT_HTML) {
+          const html = await marked.parse(text)
+          content = {
+            msgtype: "m.text",
+            body: text,
+            format: "org.matrix.custom.html",
+            formatted_body: html,
+          }
+        } else {
+          content = { msgtype: "m.text", body: text }
+        }
+        const eventId = await this.matrix!.sendMessage(context.roomId, content)
+        this.recordBotEventId(context, eventId)
+        return eventId || null
       }
     } catch (err) {
       this.logError(`Failed to send reply to ${context.roomId}:`, err)
@@ -268,8 +297,10 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
         if (session && eventId) {
           session.lastEventIds.set(context.replyThreadRootId, eventId)
         }
+        this.recordBotEventId(context, eventId)
       } else {
-        await this.matrix!.sendNotice(context.roomId, text)
+        const eventId = await this.matrix!.sendNotice(context.roomId, text)
+        this.recordBotEventId(context, eventId)
       }
     } catch (err) {
       this.logError(`Failed to send notice to ${context.roomId}:`, err)
@@ -292,6 +323,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
     if (this.threadIsolation && session && eventId) {
       session.lastEventIds.set(context.replyThreadRootId, eventId)
     }
+    this.recordBotEventId(context, eventId)
     return eventId || null
   }
 
@@ -369,7 +401,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
     // Deduplicate events (Matrix sync replays)
     if (this.isDuplicateEvent(event.event_id || `${roomId}:${Date.now()}`)) return
 
-    const threadRootEventId = extractThreadRootId(event)
+    const threadRootEventId = extractReplyTargetId(event, this.threadIsolation)
 
     const context = normalizeMatrixEventContext({
       roomId,
@@ -399,15 +431,27 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
       query = body.replace(/^@?bot[:\s]*/i, "").trim()
     } else if (isDM) {
       query = body
-    } else if (this.threadIsolation && shouldHandleThreadReply({
+    } else if (shouldHandleThreadReply({
       text: body,
       threadRootEventId,
       trigger: TRIGGER,
       botUserId: myUserId,
     }) && this.sessionManager.has(context.sessionId)) {
-      // Implicit thread follow-up
+      // m.thread replies are accepted unconditionally when threadIsolation is
+      // on (anyone in the thread can continue the conversation).
+      //
+      // When threadIsolation is off, only count plain m.in_reply_to replies
+      // that target a message the bot itself sent — anything else is just
+      // someone replying to a third party in the room.
+      if (!this.threadIsolation) {
+        const session = this.sessionManager.get(context.sessionId)!
+        if (!session.botSentEventIds.has(threadRootEventId)) {
+          return
+        }
+      }
       query = body
-      this.log(`[THREAD] ${message.sender} in ${context.sessionId}: ${body}`)
+      const kind = this.threadIsolation ? "THREAD" : "REPLY"
+      this.log(`[${kind}] ${message.sender} in ${context.sessionId}: ${body}`)
     } else {
       return
     }
@@ -710,6 +754,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
     return {
       ...this.createBaseSession(client),
       lastEventIds: new Map(),
+      botSentEventIds: new Set(),
     }
   }
 
@@ -742,6 +787,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
           session.lastEventIds.set(context.replyThreadRootId, eventId)
         }
       }
+      this.recordBotEventId(context, eventId)
 
       this.log(`Sent image to ${context.roomId}: ${mxcUrl}`)
     } catch (err) {
@@ -781,6 +827,7 @@ export class MatrixConnector extends BaseConnector<RoomSession> {
           session.lastEventIds.set(context.replyThreadRootId, eventId)
         }
       }
+      this.recordBotEventId(context, eventId)
 
       this.log(`Sent image from file to ${context.roomId}: ${mxcUrl}`)
     } catch (err) {

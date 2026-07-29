@@ -31,6 +31,7 @@ function roomSession(client: FakeACPClient) {
     inputChars: 0,
     outputChars: 0,
     lastEventIds: new Map<string, string>(),
+    botSentEventIds: new Set<string>(),
   }
 }
 

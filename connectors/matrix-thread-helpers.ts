@@ -35,6 +35,29 @@ export function extractThreadRootId(event: any): string {
 }
 
 /**
+ * Extract the event ID that an inbound message is replying to.
+ *
+ * With threadIsolation ON, only m.thread events count (each thread is an
+ * isolated session). With threadIsolation OFF, the room is a single session,
+ * so plain m.in_reply_to replies are also treated as continuations of the
+ * conversation. m.thread takes precedence when both are present.
+ *
+ * Returns empty string when the message is not a reply.
+ */
+export function extractReplyTargetId(event: any, threadIsolation: boolean): string {
+  const relatesTo = event?.content?.["m.relates_to"]
+  if (relatesTo?.rel_type === "m.thread" && relatesTo?.event_id) {
+    return relatesTo.event_id
+  }
+  if (threadIsolation) return ""
+  // Legacy fallback: m.in_reply_to may appear directly on content (older clients)
+  const inReplyTo =
+    relatesTo?.["m.in_reply_to"]?.event_id ||
+    event?.content?.["m.in_reply_to"]?.event_id
+  return inReplyTo || ""
+}
+
+/**
  * Resolve the thread root event ID.
  * If the event is in a thread, use the thread root. Otherwise use the event itself.
  */
@@ -104,8 +127,12 @@ export function buildThreadRelation(threadRootEventId: string, lastEventId: stri
 }
 
 /**
- * Returns true if a plain thread reply (no trigger, no mention) should be
- * considered for forwarding to the bot.
+ * Returns true if a plain thread/reply follow-up (no trigger, no mention)
+ * should be considered for forwarding to the bot.
+ *
+ * Caller is expected to populate threadRootEventId from extractReplyTargetId,
+ * which returns the m.thread root when threadIsolation is ON and also the
+ * m.in_reply_to target when threadIsolation is OFF.
  */
 export function shouldHandleThreadReply(input: {
   text: string
