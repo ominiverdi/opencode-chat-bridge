@@ -78,6 +78,13 @@ export interface TelegramConfig {
    *  requires an active session for the same chat/topic first so the bot
    *  doesn't pick up stale replies from days-old conversations. */
   respondToReplies: boolean
+  /** Plain messages inside an active forum topic continue the conversation
+   *  without requiring the trigger or @mention. Only applies when
+   *  `threadIsolation` is on and the topic already has an active session.
+   *  Set to `false` to require an explicit trigger, @mention, swipe-reply
+   *  to the bot, or attachment in every forum-topic message, while keeping
+   *  per-topic session isolation. */
+  respondToImplicitTopicReplies: boolean
   /** Download incoming Telegram media into the session workspace for the LLM. */
   attachments: TelegramAttachmentsConfig
   /** Comma-separated Telegram numeric chat IDs and/or user IDs to ignore */
@@ -220,6 +227,7 @@ const defaultConfig: ChatBridgeConfig = {
     respondToMentions: true,
     threadIsolation: true,
     respondToReplies: true,
+    respondToImplicitTopicReplies: true,
     attachments: {
       enabled: true,
       maxFileBytes: 20 * 1024 * 1024,

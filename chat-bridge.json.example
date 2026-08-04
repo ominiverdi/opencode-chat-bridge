@@ -73,6 +73,7 @@
     "respondToMentions": true,
     "threadIsolation": true,
     "respondToReplies": true,
+    "respondToImplicitTopicReplies": true,
     "attachments": {
       "enabled": true,
       "maxFileBytes": 20971520,

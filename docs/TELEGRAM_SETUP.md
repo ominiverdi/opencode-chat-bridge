@@ -62,6 +62,7 @@ installations), add to `chat-bridge.json`:
     "respondToMentions": true,
     "threadIsolation": true,
     "respondToReplies": true,
+    "respondToImplicitTopicReplies": true,
     "attachments": {
       "enabled": true,
       "maxFileBytes": 20971520,
@@ -80,9 +81,13 @@ addition to the trigger prefix). `threadIsolation` (default `true`) gives each
 forum topic its own isolated OpenCode session. `respondToReplies` (default
 `true`) makes the bot also reply when you swipe-reply to one of its own
 messages, even without a trigger prefix; set it to `false` to disable.
-`attachments.enabled` (default `true`) controls incoming file downloads;
-`attachments.maxFileBytes` is capped at Telegram Bot API's 20 MB limit and
-`attachments.maxFilesPerMessage` defaults to 4.
+`respondToImplicitTopicReplies` (default `true`) lets a plain message inside
+an active forum topic continue the conversation without re-triggering; set it
+to `false` to require an explicit trigger, @mention, swipe-reply to the bot,
+or attachment in every forum-topic message, while still keeping per-topic
+session isolation. `attachments.enabled` (default `true`) controls incoming
+file downloads; `attachments.maxFileBytes` is capped at Telegram Bot API's 20
+MB limit and `attachments.maxFilesPerMessage` defaults to 4.
 
 ## Step 3: Run the Connector
 
@@ -138,8 +143,9 @@ A message becomes a query when:
 1. It starts with `${TRIGGER}` (e.g., `!oc summarize this`), or
 2. It `@`-mentions the bot (e.g., `@your_bot hello`), or
 3. It is sent to the bot in a private chat (auto-handled, no prefix needed), or
-4. It is a plain reply inside an active topic when `threadIsolation` is on
-   (the connector continues the conversation without re-mentioning), or
+4. It is a plain reply inside an active topic when `threadIsolation` and
+   `respondToImplicitTopicReplies` are on (the connector continues the
+   conversation without re-mentioning), or
 5. It is a swipe-reply to one of this bot's own messages, when
    `respondToReplies` is on (default `true`). This makes the bot answer when
    you long-press its message and tap "Reply", even in a regular group with

@@ -14,6 +14,14 @@
  *   chat), so a group and a DM with the same user share a session only if
  *   they share a chat id (which they don't).
  *
+ * Implicit Topic Replies (configurable via chat-bridge.json
+ * telegram.respondToImplicitTopicReplies):
+ *   When `threadIsolation` is on and a topic already has an active session,
+ *   plain messages (no trigger, no @mention, no swipe-reply to the bot) are
+ *   forwarded as follow-ups. Default `true`. Set to `false` to require an
+ *   explicit trigger, @mention, swipe-reply to the bot, or attachment in
+ *   every forum-topic message, while keeping per-topic session isolation.
+ *
  * Usage:
  *   bun connectors/telegram.ts
  *
@@ -499,6 +507,149 @@ export function shouldHandleTelegramBotReply(input: {
   return true
 }
 
+/**
+ * Input for the pure Telegram query-decision helper. Mirrors the relevant
+ * fields from `TelegramEventContext` and the connector's runtime flags.
+ */
+export interface ResolveTelegramQueryInput {
+  text: string
+  isPrivate: boolean
+  messageThreadId: number | null
+  replyToMessageIsBot: boolean
+  replyToMessageFromId: string | null
+  trigger: string
+  botUsername: string
+  ourBotId: number
+  /** True when the incoming message carried at least one downloadable attachment. */
+  hasAttachments: boolean
+  /** True when an OpenCode session is already active for the chat/topic. */
+  hasActiveSession: boolean
+  respondToMentions: boolean
+  respondToReplies: boolean
+  /** Gates the implicit-topic-reply branch off entirely. */
+  respondToImplicitTopicReplies: boolean
+  threadIsolation: boolean
+}
+
+/**
+ * Outcome of the Telegram query decision. `handled: false` means the message
+ * should be dropped (no trigger, no mention, no DM, no pass-through branch).
+ */
+export interface ResolveTelegramQueryResult {
+  handled: boolean
+  /** Trimmed query text (after stripping trigger / mention prefix). */
+  query: string
+  /** True iff this message was matched as a swipe-reply to this bot's own message. */
+  isReplyToThisBot: boolean
+}
+
+export function notHandled(): ResolveTelegramQueryResult {
+  return { handled: false, query: "", isReplyToThisBot: false }
+}
+
+export function handled(query: string, isReplyToThisBot: boolean): ResolveTelegramQueryResult {
+  return { handled: true, query, isReplyToThisBot }
+}
+
+/**
+ * Decide whether an incoming Telegram message should become a query.
+ *
+ * Pure function -- the connector passes in the resolved flags and the
+ * precomputed `hasActiveSession` snapshot so this stays testable in
+ * isolation. The decision tree mirrors the original inline logic in
+ * `handleUpdate`:
+ *
+ *   1. Trigger prefix (`!oc ...`)
+ *   2. Bare trigger (`!oc`)
+ *   3. @mention (`@bot ...`)
+ *   4. Bare @mention (`@bot`)
+ *   5. Private chat (catch-all)
+ *   6. Implicit topic reply (plain text in an active forum topic)
+ *   7. Swipe-reply to this bot's own message
+ *   8. Attachment bypass (caption-less attachment in a DM or active topic)
+ *
+ * Returns `{ handled: false, ... }` when none of the above apply.
+ */
+export function resolveTelegramQuery(input: ResolveTelegramQueryInput): ResolveTelegramQueryResult {
+  const mention = `@${input.botUsername}`
+  const text = input.text
+
+  const isReplyToThisBot =
+    input.respondToReplies &&
+    input.replyToMessageIsBot &&
+    input.replyToMessageFromId === String(input.ourBotId)
+
+  const canBypassTriggerForAttachments =
+    input.hasAttachments &&
+    (input.isPrivate ||
+      (input.threadIsolation &&
+        input.messageThreadId !== null &&
+        input.hasActiveSession) ||
+      (isReplyToThisBot && input.hasActiveSession))
+
+  if (text.startsWith(input.trigger + " ")) {
+    return handled(text.slice(input.trigger.length + 1).trim(), isReplyToThisBot)
+  }
+  if (text === input.trigger) {
+    return handled("", isReplyToThisBot)
+  }
+  if (text.startsWith(input.trigger)) {
+    return handled(text.slice(input.trigger.length).trim(), isReplyToThisBot)
+  }
+  if (input.respondToMentions && text.startsWith(mention + " ")) {
+    return handled(text.slice(mention.length + 1).trim(), isReplyToThisBot)
+  }
+  if (input.respondToMentions && text === mention) {
+    return handled("", isReplyToThisBot)
+  }
+  if (input.respondToMentions && text.startsWith(mention)) {
+    return handled(text.slice(mention.length).trim(), isReplyToThisBot)
+  }
+  if (input.isPrivate) {
+    return handled(text, isReplyToThisBot)
+  }
+  if (
+    input.threadIsolation &&
+    input.respondToImplicitTopicReplies &&
+    shouldHandleImplicitTopicReply({
+      text,
+      isPrivate: false,
+      messageThreadId: input.messageThreadId,
+      trigger: input.trigger,
+      botUsername: input.botUsername,
+    }) &&
+    input.hasActiveSession
+  ) {
+    // Implicit follow-up inside an active topic, gated by
+    // `respondToImplicitTopicReplies` so per-topic-session isolation can be
+    // kept without forwarding every plain message.
+    return handled(text, isReplyToThisBot)
+  }
+  if (
+    input.respondToReplies &&
+    shouldHandleTelegramBotReply({
+      enabled: true,
+      text,
+      isPrivate: input.isPrivate,
+      replyToMessageIsBot: input.replyToMessageIsBot,
+      replyToMessageFromId: input.replyToMessageFromId,
+      ourBotId: input.ourBotId,
+    }) &&
+    input.hasActiveSession
+  ) {
+    // Direct swipe-reply to one of this bot's own messages inside an
+    // active chat/topic. DMs are already caught above; this branch is
+    // effectively the non-DM reply-to-bot case. Attachment-only replies
+    // are handled by the attachment bypass below because this helper
+    // requires non-empty text.
+    return handled(text, isReplyToThisBot)
+  }
+  if (canBypassTriggerForAttachments) {
+    return handled("", isReplyToThisBot)
+  }
+  return notHandled()
+}
+
 // =============================================================================
 // Incoming file attachments
 // =============================================================================
@@ -693,6 +844,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
   private threadIsolation: boolean
   private respondToMentions: boolean
   private respondToReplies: boolean
+  private respondToImplicitTopicReplies: boolean
 
   constructor() {
     super({
@@ -706,6 +858,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     this.threadIsolation = THREAD_ISOLATION
     this.respondToMentions = config.telegram.respondToMentions
     this.respondToReplies = config.telegram.respondToReplies
+    this.respondToImplicitTopicReplies = config.telegram.respondToImplicitTopicReplies
   }
 
   // ---------------------------------------------------------------------------
@@ -724,6 +877,7 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     console.log(`  Thread isolation: ${this.threadIsolation ? "on (per-topic sessions)" : "off (per-chat sessions)"}`)
     console.log(`  Respond to mentions: ${this.respondToMentions ? "on" : "off"}`)
     console.log(`  Respond to replies: ${this.respondToReplies ? "on" : "off"}`)
+    console.log(`  Respond to implicit topic replies: ${this.respondToImplicitTopicReplies ? "on" : "off"}`)
     if (DROP_PENDING) console.log(`  Will drop pending updates on startup`)
 
     await this.cleanupSessions()
@@ -1032,79 +1186,26 @@ export class TelegramConnector extends BaseConnector<ChatSession> {
     // Attachments alone don't bypass the trigger requirement in plain groups
     // (a user can share a photo with a friend without wanting the bot's take),
     // but they DO count as engagement in DMs and inside active forum topics.
-    const mention = `@${this.botUsername}`
-    const text = ctx.text
-    let query = ""
+    const decision = resolveTelegramQuery({
+      text: ctx.text,
+      isPrivate: ctx.isPrivate,
+      messageThreadId: ctx.messageThreadId,
+      replyToMessageIsBot: ctx.replyToMessageIsBot,
+      replyToMessageFromId: ctx.replyToMessageFromId,
+      trigger: TRIGGER,
+      botUsername: this.botUsername,
+      ourBotId: this.botId,
+      hasAttachments: attachments.length > 0,
+      hasActiveSession: this.sessionManager.has(ctx.sessionId),
+      respondToMentions: this.respondToMentions,
+      respondToReplies: this.respondToReplies,
+      respondToImplicitTopicReplies: this.respondToImplicitTopicReplies,
+      threadIsolation: this.threadIsolation,
+    })
 
-    const isReplyToThisBot =
-      this.respondToReplies &&
-      ctx.replyToMessageIsBot &&
-      ctx.replyToMessageFromId === String(this.botId)
+    if (!decision.handled) return
 
-    const canBypassTriggerForAttachments =
-      attachments.length > 0 &&
-      (ctx.isPrivate ||
-        (this.threadIsolation &&
-          ctx.messageThreadId !== null &&
-          this.sessionManager.has(ctx.sessionId)) ||
-        (isReplyToThisBot && this.sessionManager.has(ctx.sessionId)))
-
-    if (text.startsWith(TRIGGER + " ")) {
-      query = text.slice(TRIGGER.length + 1).trim()
-    } else if (text === TRIGGER) {
-      query = ""
-    } else if (text.startsWith(TRIGGER)) {
-      query = text.slice(TRIGGER.length).trim()
-    } else if (
-      this.respondToMentions &&
-      text.startsWith(mention + " ")
-    ) {
-      query = text.slice(mention.length + 1).trim()
-    } else if (this.respondToMentions && text === mention) {
-      query = ""
-    } else if (this.respondToMentions && text.startsWith(mention)) {
-      query = text.slice(mention.length).trim()
-    } else if (ctx.isPrivate) {
-      query = text
-    } else if (
-      this.threadIsolation &&
-      shouldHandleImplicitTopicReply({
-        text,
-        isPrivate: false,
-        messageThreadId: ctx.messageThreadId,
-        trigger: TRIGGER,
-        botUsername: this.botUsername,
-      }) &&
-      this.sessionManager.has(ctx.sessionId)
-    ) {
-      // Implicit follow-up inside an active topic
-      query = text
-    } else if (
-      this.respondToReplies &&
-      shouldHandleTelegramBotReply({
-        enabled: true,
-        text,
-        isPrivate: ctx.isPrivate,
-        replyToMessageIsBot: ctx.replyToMessageIsBot,
-        replyToMessageFromId: ctx.replyToMessageFromId,
-        ourBotId: this.botId,
-      }) &&
-      this.sessionManager.has(ctx.sessionId)
-    ) {
-      // Direct swipe-reply to one of this bot's own messages inside an
-      // active chat/topic. DMs are already caught above; this branch is
-      // effectively the non-DM reply-to-bot case. Attachment-only replies
-      // are handled by the attachment bypass below because this helper
-      // requires non-empty text.
-      query = text
-    } else if (canBypassTriggerForAttachments) {
-      // Caption-less attachment in a DM or an active topic -- treat as an
-      // attachment-only query (text stays empty; we'll synthesise a header
-      // from the downloaded files below).
-      query = ""
-    } else {
-      return
-    }
+    let query = decision.query
 
     // Download any attachments to the session cwd BEFORE processing so the
     // LLM can reference them as plain file paths (and so command forwarding
