@@ -39,6 +39,7 @@
     "token": "{env:MATTERMOST_TOKEN}",
     "teamName": "",
     "respondToMentions": true,
+    "respondToThreadReplies": true,
     "ignoreChannels": [],
     "ignoreUsers": []
   },

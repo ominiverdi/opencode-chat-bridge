@@ -102,6 +102,7 @@ And configure the connector in `chat-bridge.json`:
 | `token` | string | `""` | Bot access token |
 | `teamName` | string | `""` | Team slug (empty = auto-detect) |
 | `respondToMentions` | boolean | `true` | Respond when @mentioned (in addition to trigger) |
+| `respondToThreadReplies` | boolean | `true` | Forward plain replies in a thread with an active session (set `false` to require an explicit trigger or @mention) |
 | `ignoreChannels` | string[] | `[]` | Channel IDs to ignore |
 | `ignoreUsers` | string[] | `[]` | User IDs to ignore |
 
@@ -178,6 +179,22 @@ Configure in `chat-bridge.json`:
 ```
 
 Set to `false` for per-channel sessions (old behavior).
+
+### Explicit Trigger Only
+
+Set `respondToThreadReplies` to `false` to stop forwarding plain thread
+replies. The bot then answers in threads only when a message starts with
+the trigger (e.g. `!oc ...`) or @mentions the bot (when `respondToMentions`
+is enabled). Per-thread session isolation is preserved; the session is just
+not continued by untriggered messages.
+
+```json
+{
+  "mattermost": {
+    "respondToThreadReplies": false
+  }
+}
+```
 
 ### Commands
 

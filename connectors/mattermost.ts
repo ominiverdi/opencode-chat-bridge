@@ -208,6 +208,70 @@ export function shouldHandleThreadReply(input: {
   return true
 }
 
+/**
+ * Result of resolving a Mattermost post into a bot query.
+ * `isImplicitThreadReply` is true when the query came from a plain thread
+ * reply forwarded because an active session exists (no trigger/@mention).
+ */
+export interface MattermostQueryResolution {
+  query: string
+  isImplicitThreadReply: boolean
+}
+
+/**
+ * Decide whether a Mattermost post should be forwarded to the bot and
+ * extract the query, mirroring the dispatch in handlePostedEvent.
+ * Returns null when the post should be ignored.
+ */
+export function resolveMattermostQuery(input: {
+  message: string
+  trigger: string
+  botUsername: string
+  isDM: boolean
+  threadIsolation: boolean
+  respondToMentions: boolean
+  respondToThreadReplies: boolean
+  hasActiveSession: boolean
+  rootId: string
+}): MattermostQueryResolution | null {
+  const {
+    message,
+    trigger,
+    botUsername,
+    isDM,
+    threadIsolation,
+    respondToMentions,
+    respondToThreadReplies,
+    hasActiveSession,
+    rootId,
+  } = input
+  const mention = `@${botUsername}`
+  if (message.startsWith(trigger + " ")) {
+    return { query: message.slice(trigger.length + 1).trim(), isImplicitThreadReply: false }
+  }
+  if (message.startsWith(trigger)) {
+    return { query: message.slice(trigger.length).trim(), isImplicitThreadReply: false }
+  }
+  if (respondToMentions && message.startsWith(mention + " ")) {
+    return { query: message.slice(mention.length + 1).trim(), isImplicitThreadReply: false }
+  }
+  if (respondToMentions && message.startsWith(mention)) {
+    return { query: message.slice(mention.length).trim(), isImplicitThreadReply: false }
+  }
+  if (isDM) {
+    return { query: message, isImplicitThreadReply: false }
+  }
+  if (
+    respondToThreadReplies &&
+    threadIsolation &&
+    shouldHandleThreadReply({ text: message, rootId, trigger, botUsername }) &&
+    hasActiveSession
+  ) {
+    return { query: message, isImplicitThreadReply: true }
+  }
+  return null
+}
+
 // =============================================================================
 // Session Type
 // =============================================================================
@@ -463,30 +527,22 @@ export class MattermostConnector extends BaseConnector<ChannelSession> {
 
       const senderName = data.data.sender_name || context.userId
 
-      // Extract query based on trigger, @mention, or DM
-      let query = ""
-      const mention = `@${this.botUsername}`
-      if (message.startsWith(TRIGGER + " ")) {
-        query = message.slice(TRIGGER.length + 1).trim()
-      } else if (message.startsWith(TRIGGER)) {
-        query = message.slice(TRIGGER.length).trim()
-      } else if (config.mattermost.respondToMentions && message.startsWith(mention + " ")) {
-        query = message.slice(mention.length + 1).trim()
-      } else if (config.mattermost.respondToMentions && message.startsWith(mention)) {
-        query = message.slice(mention.length).trim()
-      } else if (isDM) {
-        query = message
-      } else if (this.threadIsolation && shouldHandleThreadReply({
-        text: message,
-        rootId: context.rootId,
+      // Extract query based on trigger, @mention, DM, or implicit thread follow-up
+      const resolution = resolveMattermostQuery({
+        message,
         trigger: TRIGGER,
         botUsername: this.botUsername,
-      }) && this.sessionManager.has(context.sessionId)) {
-        // Implicit thread follow-up: plain reply in a thread with an active session
-        query = message
+        isDM,
+        threadIsolation: this.threadIsolation,
+        respondToMentions: config.mattermost.respondToMentions,
+        respondToThreadReplies: config.mattermost.respondToThreadReplies !== false,
+        hasActiveSession: this.sessionManager.has(context.sessionId),
+        rootId: context.rootId,
+      })
+      if (!resolution) return
+      const { query } = resolution
+      if (resolution.isImplicitThreadReply) {
         this.log(`[THREAD] ${senderName} in ${context.sessionId}: ${message}`)
-      } else {
-        return
       }
 
       if (!query) return
