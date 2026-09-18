@@ -850,7 +850,8 @@ SESSION_RETENTION_DAYS=7  # Default: 7 days
 ```
 
 **2. Runtime expiry (minutes-based):**
-A background sweep expires inactive in-memory sessions and removes their on-disk cache.
+A background sweep expires inactive in-memory sessions, removes their persisted
+ACP mappings, and deletes their on-disk cache.
 
 ```bash
 # .env

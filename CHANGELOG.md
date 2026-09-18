@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Runtime session expiry** - Expiring an inactive session now removes its
+  persisted ACP mapping as well as its process and workspace, so a later
+  request cannot resume backend state that was meant to expire.
+
 ## [0.7.0] - 2026-08-26
 
 ### Added

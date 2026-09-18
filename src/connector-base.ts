@@ -922,6 +922,7 @@ export abstract class BaseConnector<TSession extends BaseSession> {
    */
   protected async invalidateACPSession(id: string): Promise<void> {
     const existing = this.sessionManager.get(id)
+    await this.acpSessionStore.delete(this.config.connector, id)
     this.sessionManager.delete(id)
     if (existing) {
       try {
@@ -930,7 +931,6 @@ export abstract class BaseConnector<TSession extends BaseSession> {
         this.logError(`Failed to disconnect invalidated ACP session ${id}:`, err)
       }
     }
-    await this.acpSessionStore.delete(this.config.connector, id)
   }
 
   /**
@@ -1069,15 +1069,13 @@ export abstract class BaseConnector<TSession extends BaseSession> {
     }
     
     for (const id of staleIds) {
-      const session = this.sessionManager.get(id)
-      if (session) {
-        try {
-          await session.client.disconnect()
-        } catch {}
+      try {
+        await this.invalidateACPSession(id)
+        this.deleteSessionCacheDir(id)
+        this.log(`[SESSION_EXPIRY] ${id} expired after ${retentionMins}m inactivity`)
+      } catch (err) {
+        this.logError(`[SESSION_EXPIRY] Failed to expire ${id}:`, err)
       }
-      this.sessionManager.delete(id)
-      this.deleteSessionCacheDir(id)
-      this.log(`[SESSION_EXPIRY] ${id} expired after ${retentionMins}m inactivity`)
     }
   }
   

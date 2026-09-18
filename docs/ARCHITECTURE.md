@@ -289,8 +289,10 @@ and session setup. `SessionManager` tracks all active sessions.
 
 `BaseConnector` provides an optional background sweep that expires inactive
 sessions after `SESSION_RETENTION_MINS` minutes. Sessions with active in-flight
-queries are protected from eviction. On expiry, both the in-memory session and
-on-disk cache directory are cleaned up.
+queries are protected from eviction. On expiry, the persisted ACP mapping is
+removed before the in-memory process and on-disk cache directory are cleaned
+up. A mapping-store failure leaves the in-memory session available so a later
+sweep can retry safely.
 
 ### Event Deduplication
 

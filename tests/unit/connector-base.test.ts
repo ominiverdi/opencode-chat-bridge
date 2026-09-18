@@ -471,6 +471,74 @@ describe("BaseConnector ACP session persistence", () => {
     expect(connector.hasPersistedACPSession("thread-2")).toBe(false)
   })
 
+  test("runtime expiry removes the persisted mapping before disconnecting and cleaning up", async () => {
+    const connector = new TestConnector() as any
+    const calls: string[] = []
+    connector.config.sessionRetentionMins = 60
+    connector.acpSessionStore = {
+      delete: async (connectorName: string, threadId: string) => {
+        calls.push(`delete:${connectorName}:${threadId}`)
+      },
+    }
+    connector.deleteSessionCacheDir = (threadId: string) => {
+      calls.push(`cache:${threadId}`)
+    }
+    connector.sessionManager.set("thread-1", {
+      client: {
+        disconnect: async () => { calls.push("disconnect") },
+      },
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      lastActivity: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      messageCount: 0,
+      inputChars: 0,
+      outputChars: 0,
+    })
+
+    await connector.expireStaleSessions()
+
+    expect(calls).toEqual([
+      "delete:test:thread-1",
+      "disconnect",
+      "cache:thread-1",
+    ])
+    expect(connector.sessionManager.has("thread-1")).toBe(false)
+  })
+
+  test("runtime expiry remains retryable when persisted mapping deletion fails", async () => {
+    const connector = new TestConnector() as any
+    const calls: string[] = []
+    let failDelete = true
+    connector.config.sessionRetentionMins = 60
+    connector.acpSessionStore = {
+      delete: async () => {
+        calls.push("delete")
+        if (failDelete) throw new Error("store unavailable")
+      },
+    }
+    connector.deleteSessionCacheDir = () => { calls.push("cache") }
+    connector.sessionManager.set("thread-1", {
+      client: {
+        disconnect: async () => { calls.push("disconnect") },
+      },
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      lastActivity: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      messageCount: 0,
+      inputChars: 0,
+      outputChars: 0,
+    })
+
+    await connector.expireStaleSessions()
+
+    expect(calls).toEqual(["delete"])
+    expect(connector.sessionManager.has("thread-1")).toBe(true)
+
+    failDelete = false
+    await connector.expireStaleSessions()
+
+    expect(calls).toEqual(["delete", "delete", "disconnect", "cache"])
+    expect(connector.sessionManager.has("thread-1")).toBe(false)
+  })
+
   test("removes the persisted mapping and in-memory session without deleting the workspace", async () => {
     const connector = new TestConnector() as any
     const calls: string[] = []
@@ -492,7 +560,7 @@ describe("BaseConnector ACP session persistence", () => {
 
     await connector.invalidateACPSession("thread-1")
 
-    expect(calls).toEqual(["disconnect", "delete:test:thread-1"])
+    expect(calls).toEqual(["delete:test:thread-1", "disconnect"])
     expect(connector.sessionManager.has("thread-1")).toBe(false)
   })
 })
